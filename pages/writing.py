@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 from pages import llm
 from pages.llm import LLMError
 
-RESTRICTED = ("Restricted topics: list any of these in `flags` if the material touches them: exaggerated "
-              "health claims, cosmetic procedures, get rich schemes, miracle or astrology claims. "
-              "Never make such claims yourself.")
+RESTRICTED = ("flags is an EMPTY list unless one of these restricted topics applies: exaggerated health claims, "
+              "cosmetic procedures, get rich schemes, miracle or astrology claims. Each flag names which one. "
+              "Put no other notes in flags. Never make such claims yourself.")
 
 
 # --- Moments (adapted from musubi-clips SKILL.md §2) ---
@@ -148,7 +148,11 @@ def write_caption(page, about: str, credits: list[str], previous: list[str]) -> 
     for attempt in range(2):
         draft = llm.ask(prompt, CaptionDraft)
         tail = "\n\n" + "\n".join(credits) + "\n\n" + " ".join(_hashtags(draft.hashtags))
-        caption = draft.text.strip()[:2200 - len(tail)] + tail
+        text, room = draft.text.strip(), 2200 - len(tail)
+        if len(text) > room:
+            cut = text[:room + 1].rsplit(None, 1)[0] if " " in text[:room + 1] else text[:room]
+            text = cut.rstrip()
+        caption = text + tail
         if caption not in previous:
             return caption
         prompt += "\n\nThat caption was already used. Write a different one."

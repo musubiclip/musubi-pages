@@ -60,6 +60,23 @@ def test_caption_shortens_to_2200(monkeypatch):
     assert len(writing.write_caption(PAGE, "a", ["c"], previous=[])) == 2200
 
 
+def test_caption_cuts_at_word_boundary(monkeypatch):
+    monkeypatch.setattr(llm, "ask", lambda p, s: s(text="hello " * 500, hashtags=["a"]))
+    cap = writing.write_caption(PAGE, "a", ["c"], previous=[])
+    body = cap.split("\n\n")[0]
+    assert len(cap) <= 2200 and body.endswith("hello") and set(body.split()) == {"hello"}
+
+
+def test_flags_prompt_says_empty_unless_restricted(monkeypatch):
+    seen = []
+    monkeypatch.setattr(llm, "ask", lambda p, s: (seen.append(p), layer(120.0) if s is writing.Layer else SCRIPT_WITH_4_BEATS)[1])
+    writing.write_layer(PAGE, M(), "text")
+    with pytest.raises(ValueError):
+        writing.write_script(BILLI, [])
+    for p in seen:
+        assert "flags is an EMPTY list unless" in p and "Each flag names which one" in p
+
+
 def test_caption_never_repeats(monkeypatch):
     monkeypatch.setattr(llm, "ask", lambda p, s: s(text="same", hashtags=["a"]))
     prev = writing.write_caption(PAGE, "a", ["c"], previous=[])
