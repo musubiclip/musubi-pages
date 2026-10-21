@@ -4,7 +4,7 @@ Written 2026-10-22 at the end of the planning session. Read this first, then `de
 
 ## In one paragraph
 
-Musubi will run 27 niche Instagram pages with Hinglish handles and grow them with clips. Later they become distribution to sell to brands. This folder is the home of the internal tool that keeps those pages posting: it cuts long videos into vertical clips, adds an AI written original layer (voiceover, context cards), lets one person approve a daily batch, publishes through the official Instagram API at varied times, and tracks views. It runs on AWS in Mumbai. **The pilot is one page, `billikalesh`.** Nothing is built yet.
+Musubi will run 27 niche Instagram pages with Hinglish handles and grow them with clips. Later they become distribution to sell to brands. This folder is the home of the internal tool that keeps those pages posting: it cuts long videos into vertical clips, adds an AI written original layer (voiceover, context cards), lets one person approve a daily batch, publishes through the official Instagram API at varied times, and tracks views. It runs on AWS in Mumbai, except YouTube downloads, which run on Prateek's Mac. **The pilot is two pages:** `podcastbawaal` on the clip pipeline and `billikalesh` on a script first pipeline (AI script, voice, licensed stock footage). Everything is in English. Nothing is built yet.
 
 ## Where things stand
 
@@ -56,17 +56,17 @@ The sign up email is always the primary handle at `musubi.si`, even when a backu
 
 ## Next steps, in order
 
-1. **Settle the open questions** below with Prateek. The billikalesh clip source decides the intake for the pilot.
+1. **Prateek creates `podcastbawaal`** next (the clip pilot page) and gets written clipping permission from 2 or 3 podcasts to start with.
 2. **Write the implementation plan** from `design.md` (superpowers:writing-plans), pilot scope only.
-3. **Create the new Meta app** for the pages, separate from the marketplace app (id 1074493771960727), with Instagram Login. Add billikalesh as an Instagram tester; Prateek accepts the invite in the account. The app needs a public privacy policy URL and a data deletion path, which can be static pages.
+3. **Create the new Meta app** for the pages, separate from the marketplace app (id 1074493771960727), with Instagram Login. Add podcastbawaal and billikalesh as Instagram testers; Prateek accepts the invites in each account. The app needs a public privacy policy URL and a data deletion path, which can be static pages.
 4. **AWS**: an EC2 instance, an S3 bucket and IAM in `ap-south-1`; Bedrock (Claude) and Polly access. Confirm the credits cover Bedrock, and when they expire.
-5. **Build the pilot** (design §5, §6), then run billikalesh daily for 2 weeks.
-6. **Check the result:** if billikalesh's reach from non followers stays near zero, the AI original layer isn't counting as original, and that needs fixing before adding more pages.
+5. **Keys**: Pexels and Pixabay API keys (free), and a royalty free music library whose licence covers Instagram.
+6. **Build the pilot** (design §5, §6): the server, the Mac fetcher, both pipelines, review page, publisher, insights. Then run both pages daily for 2 weeks.
+7. **Check the result:** if podcastbawaal's reach from non followers stays near zero, the AI original layer isn't counting as original, and that needs fixing before adding more pages.
 
 ## Open
 
-- **Where billikalesh's clips come from** (design §9): animal creators who agree to clipping, Creative Commons (CC BY) YouTube videos, stock footage (Pexels or Pixabay) with fact voiceover, or a mix.
-- **Builder check results**: a reviewer read `design.md` as a builder; its questions are appended below when they land.
+- Nothing blocks the plan. The builder check's four questions (pilot page, music, downloads, language) were answered on 22 Oct and are in design §9.
 - **Repository**: a local git repo with no remote yet. Plan: a new private repo in the musubiclip GitHub org (`env -u GITHUB_TOKEN gh ...` for that org), created when Prateek says so.
 
 ## Rules that came out of the planning (don't relitigate)

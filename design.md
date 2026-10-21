@@ -8,12 +8,16 @@ Musubi will own a network of niche Instagram pages (27 planned, Hinglish handles
 
 Musubi Pages is a separate internal tool that keeps those pages posting good reels every day with little human time. It turns long videos into short vertical clips, adds an original layer of commentary to each, lets one person approve a daily batch, publishes through the official Instagram API at varied times, and tracks views per reel.
 
-**The pilot is one page: `billikalesh`** (animals and nature). It already exists as a Creator account with name, bio and photo. Everything below is built and proven on it first; the other 26 pages are added as they are created over the coming days, mostly as configuration.
+**The pilot is two pages, one per pipeline:**
+- **`podcastbawaal`** (podcast clips) proves the **clip pipeline**: long videos with speech, cut by the musubi-clips engine. About 20 of the 27 angles are speech led and use this path. The account still has to be created.
+- **`billikalesh`** (animals and nature) proves the **script first pipeline**: AI writes a short reel script, a voice reads it, licensed footage is laid under it. Wordless footage can't go through the clip engine, which runs on speech. The account already exists as a Creator account with name, bio and photo.
+
+The other pages are added as they are created over the coming days, mostly as configuration, each on whichever pipeline fits its angle.
 
 ## 2. Goals, non goals, anti goals
 
 **Goals**
-- billikalesh posts 1 reel a day within the first week of the tool running, rising to 2 or 3 when reach holds.
+- Each pilot page posts 1 reel a day within the first week of the tool running, rising to 2 or 3 when reach holds.
 - A person spends about 10 to 15 minutes a day reviewing, for all pages together.
 - Each page's median reel passes 5,000 views by day 90 of posting. A page under 1,000 after 60 days gets a new angle or is replaced.
 - Adding a new page takes minutes: connect the account, set its sources, voice and style.
@@ -28,7 +32,7 @@ Musubi Pages is a separate internal tool that keeps those pages posting good ree
 - Automated following, unfollowing, liking, commenting or DMs. No API offers them; only bots do, and they get accounts blocked.
 - Posting a clip with no original layer. Instagram stops recommending accounts whose posts are mostly other people's content (rule announced 2026-04-30).
 - Posting the same clip to two pages, or one we know the source already posted on Instagram.
-- Posting without the copyright check, or with music left in.
+- Posting without the copyright check, or with the source's own music left in. The only music allowed is a bed the tool adds from a licensed library.
 - Proxies, antidetect browsers or anything that hides who runs the pages. One company openly owning many pages is allowed; disguising it is what Meta punishes.
 - Touching Musubi's marketplace systems: the musubi-platform app, its Meta app, or the WhatsApp number that sends creator login codes.
 
@@ -68,9 +72,11 @@ Researched 2026-10-22. Full notes with sources are in `research/` (`research-gro
 | Area | Decision |
 |---|---|
 | Platform | Instagram only, for now |
-| Pages | 27 angles; pilot `billikalesh` |
+| Pages | 27 angles; pilot `podcastbawaal` (clip pipeline) and `billikalesh` (script first pipeline) |
 | Tool home | New standalone app, separate from musubi-platform and Musubi Log |
-| Runtime | AWS, Mumbai (`ap-south-1`), paid from Musubi's $1000 credits. Cutting runs on AWS too |
+| Runtime | AWS, Mumbai (`ap-south-1`), paid from Musubi's $1000 credits. Cutting, rendering, review and publishing run on AWS. **Downloading from YouTube runs on Prateek's Mac**, which uploads to S3, because YouTube blocks AWS addresses |
+| Language | English for voiceover, on screen text and captions, on every page. Polly English (India) voices |
+| Music | Drop moments whose audio carries music. Kept clips may get a background bed from a licensed royalty free library |
 | Instagram access | One **new** Meta app just for the pages, separate from the marketplace app; Instagram Login; each page a tester |
 | Sources | Only sources that allow clipping. Permission recorded per source |
 | Intake | Both: watched source channels, and pasted links |
@@ -88,16 +94,20 @@ Researched 2026-10-22. Full notes with sources are in `research/` (`research-gro
 
 ## 5. Pilot scope
 
-v1 is one page end to end:
+v1 is two pages end to end:
 
-1. **Connect** billikalesh to the new Meta app as a tester and store its token.
-2. **Sources** for animals and nature (open question in §9).
-3. **Cut** clips, **add the original layer**, **render** them in billikalesh's style.
+1. **Connect** podcastbawaal and billikalesh to the new Meta app as testers and store their tokens.
+2. **Sources:**
+   - podcastbawaal: podcasts whose owners allow clipping.
+   - billikalesh: free licensed stock footage (Pexels, Pixabay) and YouTube videos under the Creative Commons Attribution licence.
+3. **Make reels:**
+   - podcastbawaal: cut clips, add the original layer, render in the page's style (§6.3 A).
+   - billikalesh: write a script, voice it, lay footage under it, render (§6.3 B).
 4. **Review** in a simple web page.
 5. **Publish** as Trial Reels first, then normal reels, at varied times.
-6. **Measure** views per reel and the share of reach from non followers. That share is the test of whether the AI original layer counts as original.
+6. **Measure** views per reel and the share of reach from non followers. For podcastbawaal, that share tests whether the AI original layer counts as original.
 
-The pilot is done when billikalesh has posted daily for 2 weeks through the tool with no manual steps except review. At that point, check whether non follower reach is near zero; if it is, the original layer needs a rethink before scaling.
+The pilot is done when both pages have posted daily for 2 weeks through the tool with no manual steps except review. The Mac fetcher running counts as automatic. At that point, check whether non follower reach is near zero; if it is, the original layer needs a rethink before scaling.
 
 ## 6. How it works
 
@@ -112,7 +122,13 @@ One small server, one bucket, AWS managed AI. No queues or microservices until v
 - **S3 bucket** for source media, rendered clips and backups. Rendered clips are served to Instagram through short lived presigned URLs (a public URL is required at publish time). Media is deleted 30 days after posting.
 - **Amazon Bedrock (Claude)** to pick moments, write the original layer and write captions. Check that the AWS credits cover Bedrock; some grants exclude it.
 - **Amazon Polly** for voiceover, one voice per page.
-- **Rendering**: the musubi-clips engine (Python `clipper.py` with ffmpeg, yt-dlp, and HyperFrames on Node 22) installed on the server. A GPU is not needed for rendering. Transcription uses YouTube's captions when present (the engine already does this); otherwise Whisper on CPU, slow but fine at pilot volume.
+- **Rendering**: the musubi-clips engine (Python `clipper.py` with ffmpeg and HyperFrames on Node 22) installed on the server. A GPU is not needed for rendering.
+  - Transcripts come from YouTube's captions, fetched by the Mac fetcher (the engine already uses them).
+  - The engine has no Whisper path yet. Add one only when a source has no captions.
+  - The engine's crop follows faces. That suits podcasts; the script first pipeline needs no tracking because its footage is chosen per shot.
+- **Mac fetcher**: a small script on Prateek's Mac, run on a schedule. It asks the server what to fetch (captions for new videos, then the chosen segments), downloads with yt-dlp from the home connection, and uploads to S3. When the Mac is off, intake waits; publishing of already approved clips doesn't.
+- **Footage search** (script first): Pexels and Pixabay APIs, plus YouTube search filtered to the Creative Commons licence (run through the Mac fetcher). Keep the licence and credit with each shot.
+- **Music bed**: a licensed royalty free library whose licence allows commercial use on Instagram. The engine already has a `--music` option. The library is the builder's pick; record its licence.
 
 **Language:** Python for the app (my call, changed from the earlier TypeScript). The cutting engine, Whisper and yt-dlp are all Python, and Kizuna is already FastAPI. Rendering stays a Node subprocess.
 
@@ -129,11 +145,23 @@ Plain tables; the names are a suggestion.
 
 ### 6.3 Daily flow
 
-1. **Intake** (hourly): look for new uploads on each page's watched sources and add pasted links. A pasted link must belong to an allowed source, unless the reviewer marks it as a one off with a permission note.
-2. **Prepare and pick**: fetch the transcript, and Claude picks candidate moments with the musubi-clips rules: stands alone, stays on topic, 30 to 90 seconds, nobody cut mid sentence. Skip moments that are music beds or contain recognisable songs. Skip moments the source already posted on its own Instagram, when that can be checked.
+**A. Clip pipeline (podcastbawaal and other speech led pages)**
+
+1. **Intake** (hourly): look for new uploads on each page's watched sources and add pasted links. A pasted link must belong to an allowed source, unless the reviewer marks it as a one off with a permission note. The Mac fetcher pulls the captions.
+2. **Pick**: Claude reads the transcript and picks candidate moments with the musubi-clips rules: stands alone, stays on topic, 30 to 90 seconds, nobody cut mid sentence. Skip moments with a music bed or a recognisable song. Skip moments the source already posted on its own Instagram, when that can be checked. The Mac fetcher then downloads only the chosen segments.
 3. **Original layer**: Claude writes a 3 to 6 second voiceover intro in the page's voice, a closing takeaway of about 3 seconds, and 1 to 3 on screen context cards with facts the clip itself doesn't say. Polly voices the intro and takeaway.
-4. **Render**: crop to full 9:16 (never letterboxed in a frame), then add the page's hook, captions and cards, and remove any music. Strip or avoid YouTube player UI and other watermarks.
-5. **Caption**: Claude writes a caption with searchable keywords, a credit line ("Video: @source" or the channel name), and at most 5 hashtags. Never the same text twice.
+4. **Render**: crop to full 9:16 (never letterboxed in a frame), then add the page's hook, English captions, cards and optionally the licensed music bed. Strip or avoid YouTube player UI and other watermarks.
+
+**B. Script first pipeline (billikalesh and other wordless angles)**
+
+1. **Idea**: Claude proposes reel ideas for the page (an animal fact, a behaviour explained, a "why does my cat..."), avoiding ideas already used.
+2. **Script**: Claude writes a 20 to 45 second English script: a hook line, 3 to 5 beats each needing one shot, and a closing line. Every factual claim must be checkable. The reviewer sees the claims.
+3. **Footage**: search Pexels, Pixabay and Creative Commons YouTube for one shot per beat. Keep each shot's licence and credit.
+4. **Voice and render**: Polly reads the script; captions come from the script with Polly's word timings; shots are cut to the beats, cropped to 9:16, with the page's hook and style, plus the licensed music bed.
+
+**Both pipelines from here**
+
+5. **Caption**: Claude writes a caption with searchable keywords, credit lines (the source, or the footage credits a licence requires), and at most 5 hashtags. Never the same text twice.
 6. **Review** (once a day): the review page lists each page's new clips with player, hook, layer text, caption and source permission. Approve, edit the caption, or reject with a reason. Restricted topic flags show here.
 7. **Schedule**: each approved clip gets a random slot in its page's window (9am to 11pm IST, at least 3 hours from the page's last post, the page's daily target not exceeded, an occasional day skipped).
 8. **Publish**: create the container with a presigned URL; poll until it finishes; run the copyright check if it works with our tokens; publish. Week 1 and any test hook go out as Trial Reels.
@@ -145,7 +173,7 @@ Plain tables; the names are a suggestion.
 
 - Every source has a permission record before any of its clips can be approved. Written permission (email or signed note) names all of Musubi's handles, not just one page, so moving a source between pages stays covered.
 - Sources that use Meta Rights Manager or YouTube Content ID are asked to allowlist our handles.
-- Music: drop clips whose audio carries a recognisable song, and remove background music where the engine can separate it.
+- Music: drop moments whose audio carries music; there is no audio separation. The only music in a posted reel is a bed from the licensed library.
 - Studio, broadcast and league footage (films, OTT, cricket, football): the source creator's permission doesn't cover footage they don't own. For those pages, the original layer must carry the post: talking head commentary, graphics or stock footage, with only brief excerpts. This is the riskiest part of the network; Prateek chose to run these pages anyway.
 
 ### 6.5 Account health
@@ -168,15 +196,18 @@ At 27 pages the server will need more CPU for rendering. Plan on ~$40 to $80 a m
 
 ## 8. Known risks
 
-- **YouTube blocks downloads from AWS** ("Sign in to confirm you're not a bot"). Prateek will solve it as it comes. Built in from the start: an "upload the file" option on the review page, so a blocked download never stalls a page. Options later: sources send files directly, or a residential proxy that fetches only the chosen segments.
+- **YouTube blocks downloads from AWS.** Solved by the Mac fetcher. If the Mac is off, intake waits. If YouTube starts blocking the home connection too, sources can send files directly. An "upload a file" option on the review page stays as the manual fallback.
 - **Whether AI narration counts as original is untested.** The pilot measures it (§5).
 - **One flagged page endangers all 27.** Mitigated by per page pause, copyright hygiene, and slow account creation.
 - **Token expiry.** A page silently stops posting if its token lapses. Mitigated by weekly refresh and warnings.
 - **Copyright check may not work with Instagram Login tokens.** Test in the pilot.
 
-## 9. Open: decide before building
+## 9. Decided after the builder check (22 Oct)
 
-1. **Where billikalesh's clips come from.** Animal and nature content is mostly short viral clips owned by many individuals, not long videos from a few sources. Candidates: animal creators who agree to clipping; YouTube videos under the Creative Commons Attribution licence (reuse is allowed with credit); free stock footage (Pexels, Pixabay) as the base for fact driven reels with voiceover. The pick changes intake for this page.
+- **Pilot pages:** podcastbawaal (clip pipeline) and billikalesh (script first pipeline), built together.
+- **Music:** drop moments with music; kept reels may get a licensed royalty free bed.
+- **Downloads:** a fetcher on Prateek's Mac; everything else on AWS.
+- **Language:** English everywhere, Polly English (India) voices.
 
 ## 10. Left to the builder
 
