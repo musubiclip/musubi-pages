@@ -67,7 +67,7 @@ The sign up email is always the primary handle at `musubi.si`, even when a backu
 
 - **Where billikalesh's clips come from** (design §9): animal creators who agree to clipping, Creative Commons (CC BY) YouTube videos, stock footage (Pexels or Pixabay) with fact voiceover, or a mix.
 - **Builder check results**: a reviewer read `design.md` as a builder; its questions are appended below when they land.
-- **Repository**: this folder isn't a git repo yet. Plan: a new private repo in the musubiclip GitHub org (`env -u GITHUB_TOKEN gh ...` for that org).
+- **Repository**: a local git repo with no remote yet. Plan: a new private repo in the musubiclip GitHub org (`env -u GITHUB_TOKEN gh ...` for that org), created when Prateek says so.
 
 ## Rules that came out of the planning (don't relitigate)
 
