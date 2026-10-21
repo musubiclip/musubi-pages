@@ -1,3 +1,8 @@
+import json
+
+import pytest
+
+from engine import clipper
 from engine.clipper import caption_chunks, crop_expression, crop_x, main_face, tidy_clips
 
 
@@ -175,11 +180,6 @@ def test_end_screen_takes_a_logo_file_and_needs_a_video_for_the_channel(tmp_path
         end_screen(tmp_path)
     END.update(choice=None)
 
-
-import pytest
-
-from engine import clipper
-
 MOMENT_30S = {"start": 10.0, "end": 40.0, "title": "Fixture", "hook_text": "Ninety percent is just water",
               "hook_parts": {"kicker": "Your cleaner is", "big": "90%", "punch": "Just water"}, "reason": "r",
               "hook": 3, "standalone": 3, "payoff": 3, "emotion": 3}
@@ -249,3 +249,19 @@ def test_render_one_with_the_layer_is_intro_plus_clip_plus_outro(fixture_workdir
     out = clipper.render_one(fixture_workdir, {**MOMENT_30S, "cards": CARDS}, tmp_path / "r.mp4", theme=THEME,
                              intro={"audio": vo_4s, "seconds": 4.0}, outro={"audio": vo_3s, "seconds": 3.0, "text": "Save this"})
     assert 36.5 < clipper.duration_of(out) < 38.5
+
+
+def test_a_section_must_reach_back_over_the_pre_roll(tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    monkeypatch.setattr(clipper, "run", lambda *a, **k: pytest.fail("called " + a[0][0]))
+    (tmp_path / "sections").mkdir()
+    (tmp_path / "sections" / "20.00-60.00.mp4").touch()
+    words = [word(f"w{i}.", i * 0.5, i * 0.5 + 0.4) for i in range(120)]
+    (tmp_path / "transcript.json").write_text(json.dumps({"language": "en", "segments": [{"words": words}]}))
+    (tmp_path / "meta.json").write_text(json.dumps({"url": "https://youtu.be/x", "language": "en"}))
+    with pytest.raises(RuntimeError, match="no section covers"):
+        clipper.render_one(tmp_path, {**MOMENT_30S, "start": 22.0, "end": 50.0}, tmp_path / "r.mp4",
+                           intro={"audio": tmp_path / "vo.mp3", "seconds": 4.0})
+    with pytest.raises(ValueError, match="too early for a 4.0s intro"):
+        clipper.render_one(tmp_path, {**MOMENT_30S, "start": 3.0, "end": 30.0}, tmp_path / "r.mp4",
+                           intro={"audio": tmp_path / "vo.mp3", "seconds": 4.0})

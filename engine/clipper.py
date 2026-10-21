@@ -824,13 +824,16 @@ def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, musi
     if not clips:
         raise ValueError(f"moment {moment['start']}-{moment['end']} must be {MIN_CLIP:.0f} to {MAX_CLIP:.0f} seconds")
     clip = clips[0]
+    voices = {}
+    if intro:
+        if clip["start"] < intro["seconds"] + 0.5:
+            raise ValueError(f"moment starts too early for a {intro['seconds']}s intro")
+        # set before the section lookup, so the section must cover the pre-roll too
+        clip = {**clip, "intro": intro["seconds"], "cold_open": None}
+        voices["intro"] = intro["audio"]
     words = english_words(workdir, meta.get("language", "en")) or words
     video, offset = video_section(workdir, meta, clip, find_stream(workdir, meta))
     clip, words = shifted(clip, words, offset)
-    voices = {}
-    if intro:
-        clip = {**clip, "intro": intro["seconds"], "cold_open": None}
-        voices["intro"] = intro["audio"]
     if outro:
         clip = {**clip, "outro": {"seconds": outro["seconds"], "text": outro["text"]}}
         voices["outro"] = outro["audio"]
