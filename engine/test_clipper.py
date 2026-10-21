@@ -262,3 +262,6 @@ def test_a_section_must_reach_back_over_the_pre_roll(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="no section covers"):
         clipper.render_one(tmp_path, {**MOMENT_30S, "start": 22.0, "end": 50.0}, tmp_path / "r.mp4",
                            intro={"audio": tmp_path / "vo.mp3", "seconds": 4.0})
+    with pytest.raises(ValueError, match="too early for a 4.0s intro"):
+        clipper.render_one(tmp_path, {**MOMENT_30S, "start": 3.0, "end": 30.0}, tmp_path / "r.mp4",
+                           intro={"audio": tmp_path / "vo.mp3", "seconds": 4.0})
