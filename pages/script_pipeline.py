@@ -7,7 +7,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from engine import clipper
@@ -15,6 +15,7 @@ from pages import config, store, voice, writing
 from pages.db import QUEUE_LOW, queue_size
 
 TAIL = 1.0
+CC_WAIT_DAYS = 3
 CC_SEARCH = "https://www.youtube.com/results?search_query={}&sp=EgIwAQ%253D%253D"
 
 
@@ -102,8 +103,9 @@ def _download(url: str, path: Path) -> Path:
 
 def _used(db, page: str) -> set[str]:
     used = set()
-    for (credits,) in db.execute("select credits from clips where page = ? and credits is not null", (page,)):
-        used |= {f"{c['provider']}:{c['id']}" for c in json.loads(credits)}
+    for credits, script in db.execute("select credits, script from clips where page = ?", (page,)):
+        shots = json.loads(credits or "[]") + json.loads(script or "{}").get("shots", [])
+        used |= {f"{c['provider']}:{c['id']}" for c in shots}
     return used
 
 
@@ -208,13 +210,19 @@ def step(db, cfg) -> None:
     for page in cfg.pages.values():
         if page.pipeline != "script":
             continue
-        for (clip_id,) in db.execute("select id from clips where page = ? and status = 'waiting_footage'",
-                                     (page.handle,)).fetchall():
+        too_old = (datetime.now(UTC) - timedelta(days=CC_WAIT_DAYS)).isoformat()
+        for clip_id, created in db.execute("select id, created_at from clips where page = ? and status = 'waiting_footage'",
+                                           (page.handle,)).fetchall():
             try:
                 _finish(db, page, clip_id)
+                still = db.execute("select status from clips where id = ?", (clip_id,)).fetchone()[0] == "waiting_footage"
+                if still and created < too_old:
+                    raise ValueError(f"no CC footage after {CC_WAIT_DAYS} days")
             except Exception as e:
                 _set(db, clip_id, status="failed", reason=str(e))
-        if queue_size(db, page.handle) < QUEUE_LOW:
+        # one waiting reel per page, so a sleeping Mac doesn't pile up Claude and Polly calls
+        waiting = db.execute("select 1 from clips where page = ? and status = 'waiting_footage'", (page.handle,)).fetchone()
+        if not waiting and queue_size(db, page.handle) < QUEUE_LOW:
             make_reel(db, cfg, page)
     store.put_json("jobs/cc.json", _cc_jobs(db))
 

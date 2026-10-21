@@ -2,6 +2,7 @@ import io
 import json
 import shutil
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -187,6 +188,32 @@ def test_cc_none_fails_the_waiting_reel(d, cfg, local_store, home, tmp_path, mon
     script_pipeline.step(d, cfg)
     row = clip(d, i)
     assert row["status"] == "failed" and row["reason"] == "no footage for cat 0"
+
+
+def test_step_makes_no_new_reel_while_one_waits(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch, shots=False)
+    script_pipeline.step(d, cfg)
+    script_pipeline.step(d, cfg)
+    assert d.execute("select count(*) from clips where page = 'billikalesh'").fetchone()[0] == 1
+
+
+def test_reel_waiting_over_3_days_fails(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch, shots=False)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    d.execute("update clips set created_at = ? where id = ?", ((datetime.now(UTC) - timedelta(days=4)).isoformat(), i))
+    script_pipeline.step(d, cfg)
+    row = clip(d, i)
+    assert row["status"] == "failed" and row["reason"] == "no CC footage after 3 days"
+
+
+def test_waiting_reel_shots_count_as_used(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch)
+    d.execute("insert into clips (page, kind, status, script) values ('billikalesh', 'script', 'waiting_footage', ?)",
+              (json.dumps({"idea": "dogs", "shots": [{"provider": "pexels", "id": "7"}]}),))
+    seen = []
+    monkeypatch.setattr(script_pipeline, "search_footage", lambda q, s, used: seen.append(set(used)))
+    script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    assert "pexels:7" in seen[0]
 
 
 def fake_ytdlp(monkeypatch, entries):
