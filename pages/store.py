@@ -16,13 +16,22 @@ def _backend():
     return None, Path(loc)
 
 
+def _local(where: Path, key: str) -> Path:
+    # Keys come from URLs (/files/<key>); never let one escape the store root.
+    root = where.resolve()
+    p = (root / key).resolve()
+    if not p.is_relative_to(root) or p == root:
+        raise ValueError(f"key outside store: {key}")
+    return p
+
+
 def put(key: str, path) -> None:
     s3, where = _backend()
     if s3:
         s3.upload_file(str(path), where, key)
     else:
-        (where / key).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, where / key)
+        _local(where, key).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, _local(where, key))
 
 
 def get(key: str, path) -> Path:
@@ -32,7 +41,7 @@ def get(key: str, path) -> Path:
     if s3:
         s3.download_file(where, key, str(path))
     else:
-        shutil.copyfile(where / key, path)
+        shutil.copyfile(_local(where, key), path)
     return path
 
 
@@ -46,7 +55,7 @@ def exists(key: str) -> bool:
             if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
                 return False
             raise
-    return (where / key).is_file()
+    return _local(where, key).is_file()
 
 
 def keys(prefix: str) -> list[str]:
@@ -66,7 +75,7 @@ def delete(key: str) -> None:
     if s3:
         s3.delete_object(Bucket=where, Key=key)
     else:
-        (where / key).unlink(missing_ok=True)
+        _local(where, key).unlink(missing_ok=True)
 
 
 def put_json(key: str, value) -> None:

@@ -20,3 +20,13 @@ def test_put_prepared_writes_the_work_files(local_store):
     assert store.keys("work/v1/") == ["work/v1/meta.json", "work/v1/source-audio.info.json",
                                       "work/v1/transcript.json", "work/v1/transcript.txt"]
     assert (local_store / "work/v1/transcript.txt").read_text() == "[0.0-3.0] Hello there.\n"
+
+
+def test_local_keys_cannot_escape_the_store(local_store, tmp_path):
+    import pytest
+    f = tmp_path / "a.txt"; f.write_text("hi")
+    for key in ["../x", "/etc/passwd"]:
+        with pytest.raises(ValueError):
+            store.get(key, tmp_path / "out.txt")
+        with pytest.raises(ValueError):
+            store.put(key, f)
