@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Spotlight reel</title>
+    <!--__DATA__-->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Bricolage Grotesque"; src: url("fonts/Bricolage.ttf") format("truetype"); font-weight: 200 800; }
+      @font-face { font-family: "Inter"; src: url("fonts/Inter.ttf") format("truetype"); font-weight: 100 900; }
+      :root {
+        --ink: #0a0a0c;
+        --hot: #ff5a1f;
+        --sun: #ffd23f;
+        --paper: #ffffff;
+        --glass: rgba(10, 10, 12, 0.74);
+        --display: "Bricolage Grotesque", sans-serif;
+        --text: Inter, sans-serif;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+      #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; font-family: var(--text); }
+
+      #cam, #punch { position: absolute; inset: 0; transform-origin: 50% 38%; }
+      #bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #vignette { position: absolute; inset: 0; background: radial-gradient(120% 80% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.5) 100%); }
+      #shade { position: absolute; left: 0; right: 0; bottom: 0; height: 980px; background: linear-gradient(transparent, rgba(10, 10, 12, 0.5) 55%, rgba(10, 10, 12, 0.82)); }
+      #dim { position: absolute; inset: 0; background: var(--ink); opacity: 0; }
+      #flash { position: absolute; inset: 0; background: var(--paper); opacity: 0; }
+      #progress { position: absolute; top: 0; left: 0; right: 0; height: 9px; background: rgba(255, 255, 255, 0.14); }
+      #progress-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--hot), var(--sun)); transform-origin: 0 50%; box-shadow: 0 0 22px rgba(255, 90, 31, 0.9); }
+
+      #wm { position: absolute; top: 32px; right: 36px; height: 64px; }
+      .band { position: absolute; left: 0; right: 0; display: flex; justify-content: center; transform-origin: 50% 0; }
+
+      #hook { flex-direction: column; align-items: center; padding: 0 60px; }
+      #hk-kicker { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 18px; overflow: hidden; padding: 6px 0; }
+      .hk-k { display: inline-block; font: 800 64px/1.05 var(--display); color: var(--paper); text-transform: uppercase; }
+      #hk-num-wrap { position: relative; display: flex; justify-content: center; }
+      #hk-glow { position: absolute; left: 50%; top: 50%; width: 720px; height: 720px; margin: -360px 0 0 -360px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 90, 31, 0.75), rgba(255, 90, 31, 0) 62%); opacity: 0; }
+      #hk-num { position: relative; font: 800 340px/0.95 var(--display); letter-spacing: -0.04em; white-space: nowrap; background: linear-gradient(180deg, var(--sun), var(--hot) 70%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.5)); font-variant-numeric: tabular-nums; }
+      #hk-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 24px; margin-top: 18px; }
+      #hk-lead { font: 800 116px/1 var(--display); color: var(--paper); text-transform: uppercase; }
+      #hk-tail { position: relative; padding: 4px 30px 14px; }
+      #hk-bar { position: absolute; inset: 0; background: var(--hot); border-radius: 18px; transform-origin: 0 50%; box-shadow: 0 20px 50px rgba(255, 90, 31, 0.45); }
+      #hk-glyphs { position: relative; display: flex; white-space: pre; }
+      .hk-g { display: inline-block; font: 800 124px/1 var(--display); color: var(--ink); text-transform: uppercase; }
+
+      #caps { position: absolute; inset: 0; }
+      .cg { position: absolute; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 6px 4px; padding: 0 48px; opacity: 0; visibility: hidden; }
+      .cw { position: relative; display: inline-block; padding: 2px 16px 10px; }
+      .cw-bg { position: absolute; inset: 0; background: var(--hot); border-radius: 16px; opacity: 0; transform-origin: 0 50%; }
+      .cw-t { position: relative; display: inline-block; font: 800 72px/1.05 var(--display); color: rgba(255, 255, 255, 0.5); text-shadow: 0 4px 22px rgba(0, 0, 0, 0.65); }
+
+      #stat, #tag, #deal { visibility: hidden; padding: 0 70px; }
+      #stat-card { display: flex; align-items: center; gap: 34px; padding: 26px 44px 26px 26px; background: var(--glass); border: 2px solid rgba(255, 255, 255, 0.12); border-radius: 36px; }
+      #stat-card.plain { padding: 30px 48px; }
+      #ring-wrap { position: relative; }
+      #ring { width: 230px; height: 230px; transform: rotate(-90deg); }
+      #ring-track { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 22; }
+      #ring-fill { fill: none; stroke: url(#ring-grad); stroke-width: 22; stroke-linecap: round; }
+      #ring-num { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; font: 800 58px/1 var(--display); color: var(--paper); font-variant-numeric: tabular-nums; }
+      #ring-num small, #stat-big small { font-size: 0.55em; margin-left: 2px; }
+      #stat-big { font: 800 140px/0.95 var(--display); letter-spacing: -0.03em; white-space: nowrap; background: linear-gradient(180deg, var(--sun), var(--hot) 75%); -webkit-background-clip: text; background-clip: text; color: transparent; font-variant-numeric: tabular-nums; }
+      #stat-label { font: 800 64px/1 var(--display); color: var(--paper); text-transform: uppercase; max-width: 560px; }
+      #stat-sub { margin-top: 14px; display: inline-block; font: 700 32px/1.1 var(--text); color: var(--ink); background: var(--sun); padding: 10px 18px 12px; border-radius: 12px; }
+
+      #tag { justify-content: flex-start; }
+      #tag-stack { display: flex; flex-direction: column; align-items: flex-start; }
+      #tag-block { background: var(--ink); padding: 22px 36px 24px; border-radius: 22px 22px 22px 0; clip-path: inset(0 100% 0 0); }
+      #tag-name { font: 800 58px/1.02 var(--display); color: var(--paper); }
+      #tag-role { display: inline-flex; align-items: center; gap: 14px; background: var(--hot); color: var(--paper); font: 800 30px/1 var(--text); letter-spacing: 0.06em; text-transform: uppercase; padding: 14px 24px 16px; border-radius: 0 0 18px 18px; }
+      #tag-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--paper); }
+
+      #deal-card { width: 900px; overflow: hidden; border-radius: 36px; background: var(--paper); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+      #deal-top { display: flex; justify-content: space-between; align-items: center; padding: 26px 40px 0; }
+      #deal-kicker { font: 800 30px/1 var(--text); letter-spacing: 0.18em; text-transform: uppercase; color: var(--hot); }
+      #deal-brand { font: 800 30px/1 var(--display); color: var(--ink); background: var(--sun); padding: 8px 18px 10px; border-radius: 999px; }
+      #deal-main { display: flex; align-items: baseline; gap: 22px; padding: 30px 40px 24px; }
+      #deal-value { font: 800 140px/0.9 var(--display); letter-spacing: -0.03em; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      #deal-sub { font: 800 46px/1.1 var(--display); color: var(--hot); }
+      #deal-strip { background: var(--ink); color: var(--paper); font: 800 32px/1 var(--text); letter-spacing: 0.14em; text-transform: uppercase; padding: 22px 40px; clip-path: inset(0 100% 0 0); }
+      .ctx { visibility: hidden; padding: 0 70px; }
+      .ctx-card { max-width: 900px; padding: 30px 44px 34px; background: var(--glass); border: 2px solid rgba(255, 255, 255, 0.12); border-left: 14px solid var(--hot); border-radius: 30px; }
+      .ctx-title { font: 800 34px/1 var(--text); letter-spacing: 0.16em; text-transform: uppercase; color: var(--sun); }
+      .ctx-body { margin-top: 14px; font: 800 60px/1.08 var(--display); color: var(--paper); }
+      #takeaway { visibility: hidden; padding: 0 70px; }
+      #takeaway-card { max-width: 920px; padding: 40px 52px 46px; background: var(--hot); border-radius: 36px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); text-align: center; }
+      #takeaway-text { font: 800 76px/1.08 var(--display); color: var(--paper); }
+      #fadeout { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+
+      #end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; padding: 0 70px; background: var(--ink); visibility: hidden; }
+      #end-glow { position: absolute; left: 50%; top: 42%; width: 1100px; height: 1100px; margin: -550px 0 0 -550px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 90, 31, 0.55), rgba(255, 90, 31, 0) 62%); }
+      #end-mark { position: relative; display: flex; justify-content: center; align-items: center; }
+      #end-ring { position: absolute; inset: -26px; border: 10px solid var(--hot); border-radius: 50%; opacity: 0; }
+      #end-tile { position: relative; overflow: hidden; background: var(--paper); box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6); }
+      #end.avatar #end-tile { width: 440px; height: 440px; border-radius: 50%; border: 10px solid var(--paper); }
+      #end.avatar #end-logo { width: 100%; height: 100%; object-fit: cover; }
+      #end.logo #end-tile { padding: 56px 64px; border-radius: 48px; }
+      #end.logo #end-ring { border-radius: 64px; }
+      #end.logo #end-logo { display: block; max-width: 680px; max-height: 300px; min-width: 240px; object-fit: contain; }
+      #end-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 26px; text-align: center; }
+      #end-name { display: flex; flex-wrap: wrap; justify-content: center; white-space: pre; overflow: hidden; padding: 8px 0; }
+      .end-g { display: inline-block; font: 800 104px/1 var(--display); color: var(--paper); letter-spacing: -0.02em; }
+      #end-line { font: 800 44px/1 var(--text); color: var(--ink); background: var(--sun); padding: 16px 30px 18px; border-radius: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="reel" data-start="0" data-duration="__TOTAL__" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="punch">
+          <video id="bg" class="clip" src="base.mp4" data-start="0" data-duration="__DURATION__" data-track-index="0" muted playsinline></video>
+        </div>
+      </div>
+      <audio id="bg-audio" src="base.mp4" data-start="0" data-duration="__DURATION__" data-track-index="10" data-volume="1"></audio>
+      <!--__MUSIC__-->
+      <div id="vignette"></div>
+      <div id="shade"></div>
+      <div id="dim"></div>
+      <div id="caps"></div>
+
+      <div id="stat" class="band">
+        <div id="stat-card">
+          <div id="ring-wrap">
+            <svg id="ring" viewBox="0 0 260 260">
+              <defs><linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd23f" /><stop offset="1" stop-color="#ff5a1f" /></linearGradient></defs>
+              <circle id="ring-track" cx="130" cy="130" r="110" />
+              <circle id="ring-fill" cx="130" cy="130" r="110" />
+            </svg>
+            <div id="ring-num"></div>
+          </div>
+          <div id="stat-big"></div>
+          <div id="stat-text"><div id="stat-label"></div><div id="stat-sub"></div></div>
+        </div>
+      </div>
+
+      <div id="tag" class="band">
+        <div id="tag-stack">
+          <div id="tag-block"><div id="tag-name"></div></div>
+          <div id="tag-role"><span id="tag-dot"></span><span id="tag-role-text"></span></div>
+        </div>
+      </div>
+
+      <div id="deal" class="band">
+        <div id="deal-card">
+          <div id="deal-top"><span id="deal-kicker"></span><span id="deal-brand"></span></div>
+          <div id="deal-main"><span id="deal-value"></span><span id="deal-sub"></span></div>
+          <div id="deal-strip"></div>
+        </div>
+      </div>
+
+      <div id="ctx"></div>
+      <div id="takeaway" class="band"><div id="takeaway-card"><div id="takeaway-text"></div></div></div>
+
+      <div id="hook" class="band">
+        <div id="hk-kicker"></div>
+        <div id="hk-num-wrap"><div id="hk-glow"></div><div id="hk-num"></div></div>
+        <div id="hk-line"><span id="hk-lead"></span><span id="hk-tail"><span id="hk-bar"></span><span id="hk-glyphs"></span></span></div>
+      </div>
+
+      <!--__WATERMARK__-->
+      <div id="flash"></div>
+      <div id="fadeout"></div>
+      <div id="end">
+        <div id="end-glow"></div>
+        <div id="end-mark"><div id="end-ring"></div><div id="end-tile"><img id="end-logo" alt="" /></div></div>
+        <div id="end-text"><div id="end-name"></div><div id="end-line"></div></div>
+      </div>
+      <div id="progress"><span id="progress-fill"></span></div>
+    </div>
+
+    <script>
+      const DATA = window.__REEL_DATA__ || {
+        duration: 15.4, cut: null, face: [180, 1100],
+        hook: "Your floor cleaner is 90% just water",
+        hook_parts: { kicker: "Your floor cleaner is", big: "90%", punch: "Just water" },
+        emphasis: ["cleaner", "paani", "harmful", "chemicals", "Cleevo"],
+        speaker: { name: "Cleevo co founder", role: "Pitching on Ideabaaz" },
+        stat: { at: 4.6, value: "90%", label: "Water", sub: "+ harmful chemicals", sub_at: 6.66 },
+        deal: { at: 12.9, kicker: "The ask", value: "₹75L", sub: "for 1.5% equity", strip: "₹50 crore valuation", brand: "Cleevo" },
+        words: [
+          { t: "usmein", s: 3.96, e: 4.28 }, { t: "takreeban", s: 4.28, e: 4.76 }, { t: "90%", s: 4.76, e: 5.48 },
+          { t: "tak", s: 5.48, e: 5.72 }, { t: "paani", s: 5.72, e: 6.2 }, { t: "hai", s: 6.2, e: 6.44 },
+          { t: "with", s: 6.44, e: 6.68 }, { t: "harmful", s: 6.68, e: 7.16 }, { t: "chemicals.", s: 7.16, e: 7.8 }
+        ],
+        groups: [[0, 5], [6, 8]]
+      };
+
+      const D = DATA.duration;
+      const FRAME = 1 / 30;
+      const FONT = "Bricolage Grotesque";
+      const HOOK_END = Math.min(Math.max(1.85, DATA.intro ? DATA.intro.seconds : 0), D - 0.4);
+      const CAP_END = DATA.outro ? DATA.outro.at : D;
+      const EMPH = new Set((DATA.emphasis || []).map(clean));
+      const measure = document.createElement("canvas").getContext("2d");
+
+      function clean(text) { return String(text).toLowerCase().replace(/[^\p{L}\p{N}₹$%]/gu, ""); }
+      function isEmph(text) { const c = clean(text); return c.length > 0 && (EMPH.has(c) || /[0-9₹%]/.test(c)); }
+
+      function fitSize(text, base, maxWidth, family) {
+        let size = base;
+        while (size > base * 0.4) {
+          measure.font = "800 " + size + "px " + family;
+          if (measure.measureText(text).width <= maxWidth) return size;
+          size -= 2;
+        }
+        return Math.round(base * 0.4);
+      }
+
+      function split(value) {
+        const m = String(value).match(/^([^\d]*)([\d][\d,.]*)(.*)$/);
+        if (!m) return null;
+        const raw = m[2].replace(/,/g, "");
+        return { pre: m[1], num: parseFloat(raw), places: (raw.split(".")[1] || "").length, post: m[3] };
+      }
+
+      function shown(parts, v) {
+        const post = parts.post === "%" ? "<small>%</small>" : parts.post;
+        return parts.pre + v.toFixed(parts.places) + post;
+      }
+
+      function count(tl, el, value, at, duration) {
+        const parts = split(value);
+        if (!parts) { el.textContent = value; return; }
+        const proxy = { v: 0 };
+        el.innerHTML = shown(parts, 0);
+        tl.fromTo(proxy, { v: 0 }, { v: parts.num, duration, ease: "power3.out", onUpdate: () => (el.innerHTML = shown(parts, proxy.v)) }, at);
+      }
+
+      function shake(tl, target, at, power) {
+        tl.to(target, { x: power, y: -power * 0.6, duration: FRAME, ease: "power2.out" }, at);
+        tl.to(target, { x: -power * 0.7, y: power * 0.4, duration: FRAME, ease: "power2.out" }, at + FRAME);
+        tl.to(target, { x: 0, y: 0, duration: FRAME, ease: "power2.out" }, at + FRAME * 2);
+      }
+
+      function punch(tl, at, amount) {
+        tl.fromTo("#punch", { scale: 1 }, { scale: amount, duration: 0.12, ease: "power3.out" }, at);
+        tl.to("#punch", { scale: 1, duration: 0.6, ease: "power2.inOut" }, at + 0.12);
+      }
+
+      const zoomed = (y) => 960 + (y - 960) * 1.13;
+      const CAP_BOTTOM = DATA.face ? Math.round(Math.min(560, Math.max(190, 1920 - zoomed(DATA.face[1]) - 40 - 200))) : 560;
+      const CAP_TOP = 1920 - CAP_BOTTOM - 210;
+
+      function bands() {
+        const below = [1920 - CAP_BOTTOM + 30, 1870];
+        if (!DATA.face) return { hook: [[200, 1870]], card: [below] };
+        const top = zoomed(DATA.face[0]), chin = zoomed(DATA.face[1]);
+        const above = [110, top - 50], middle = [chin + 40, CAP_TOP - 30];
+        return { hook: [above, [chin + 40, 1870]], card: [below, above, middle] };
+      }
+
+      function place(el, options) {
+        const height = el.offsetHeight;
+        let best = null;
+        options.forEach(([a, b], i) => {
+          const room = b - a;
+          if (room <= 0) return;
+          const scale = Math.min(1, room / height);
+          if (!best || scale > best.scale + 0.05 || (Math.abs(scale - best.scale) <= 0.05 && i < best.i)) best = { a, room, scale, i };
+        });
+        if (!best) best = { a: 120, room: height, scale: 1 };
+        el.style.top = Math.round(best.a + (best.room - height * best.scale) / 2) + "px";
+        el.style.transform = "scale(" + best.scale.toFixed(3) + ")";
+      }
+
+      function hookParts() {
+        if (DATA.hook_parts && (DATA.hook_parts.big || DATA.hook_parts.punch)) return DATA.hook_parts;
+        const words = String(DATA.hook || "").split(/\s+/).filter(Boolean);
+        const big = words.find((w) => /[0-9₹]/.test(w));
+        const rest = words.filter((w) => w !== big);
+        return { kicker: rest.slice(0, Math.max(0, rest.length - 2)).join(" "), big: big || "", punch: rest.slice(-2).join(" ") };
+      }
+
+      function buildHook(tl) {
+        const parts = hookParts();
+        const hook = document.getElementById("hook");
+        if (!parts.big && !parts.punch && !parts.kicker) { hook.style.display = "none"; return; }
+
+        const kicker = document.getElementById("hk-kicker");
+        const kWords = String(parts.kicker || "").split(/\s+/).filter(Boolean);
+        const kSize = Math.max(44, fitSize(kWords.join(" ").toUpperCase(), 64, 900, FONT));
+        kicker.innerHTML = kWords.map((w) => `<span class="hk-k" style="font-size:${kSize}px">${w}</span>`).join("");
+        if (!kWords.length) kicker.style.display = "none";
+
+        const num = document.getElementById("hk-num");
+        if (parts.big) { num.style.fontSize = fitSize(parts.big, 340, 900, FONT) + "px"; num.textContent = parts.big; }
+        else document.getElementById("hk-num-wrap").style.display = "none";
+
+        const pWords = String(parts.punch || "").split(/\s+/).filter(Boolean);
+        const tailText = pWords.length > 1 ? pWords.slice(1).join(" ") : pWords.join(" ");
+        const leadText = pWords.length > 1 ? pWords[0] : "";
+        const lead = document.getElementById("hk-lead");
+        const tSize = fitSize(tailText.toUpperCase(), 124, 860, FONT);
+        lead.textContent = leadText;
+        lead.style.fontSize = Math.min(116, tSize) + "px";
+        if (!leadText) lead.style.display = "none";
+        const glyphs = document.getElementById("hk-glyphs");
+        glyphs.innerHTML = [...tailText].map((c) => `<span class="hk-g" style="font-size:${tSize}px">${c === " " ? " " : c}</span>`).join("");
+        if (!pWords.length) document.getElementById("hk-line").style.display = "none";
+
+        place(hook, bands().hook);
+
+        tl.fromTo("#flash", { opacity: 0.9 }, { opacity: 0, duration: 0.35, ease: "power2.out" }, 0);
+        tl.fromTo("#cam", { scale: 1.32, filter: "blur(18px)" }, { scale: 1.04, filter: "blur(0px)", duration: 0.45, ease: "expo.out" }, 0);
+        tl.fromTo("#dim", { opacity: 0 }, { opacity: 0.55, duration: 0.25, ease: "power2.out" }, 0);
+        tl.fromTo(".hk-k", { yPercent: 120 }, { yPercent: 0, duration: 0.4, ease: "power4.out", stagger: 0.04 }, 0.04);
+
+        if (parts.big) {
+          tl.fromTo(num, { scale: 2.6, opacity: 0, filter: "blur(24px)" }, { scale: 1, opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "expo.out" }, 0.24);
+          count(tl, num, parts.big, 0.24, 0.48);
+          tl.fromTo("#hk-glow", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1.1, duration: 0.3, ease: "power2.out" }, 0.7);
+          tl.to("#hk-glow", { opacity: 0.35, scale: 1, duration: 0.5, ease: "sine.inOut" }, 1.0);
+          shake(tl, "#root", 0.72, 16);
+          tl.fromTo(num, { scale: 1 }, { scale: 1.04, duration: 0.22, ease: "sine.inOut", yoyo: true, repeat: 1 }, 1.18);
+        }
+        if (pWords.length) {
+          if (leadText) tl.fromTo(lead, { x: -260, opacity: 0 }, { x: 0, opacity: 1, duration: 0.28, ease: "back.out(2)" }, 0.78);
+          tl.fromTo("#hk-bar", { scaleX: 0 }, { scaleX: 1, duration: 0.26, ease: "power4.out" }, 0.84);
+          const scatter = [[-0.9, -0.4, 0.7], [0.6, 0.7, -0.9], [-0.2, 0.9, 0.8], [0.8, -0.5, -0.6], [-0.6, 0.6, -0.3]];
+          glyphs.querySelectorAll(".hk-g").forEach((g, i) => {
+            const [x, y, r] = scatter[i % scatter.length];
+            tl.fromTo(g, { x: x * 260, y: y * 220, rotation: r * 70, opacity: 0, scale: 1.6 }, { x: 0, y: 0, rotation: 0, opacity: 1, scale: 1, duration: 0.34, ease: "back.out(2.4)" }, 0.84 + i * 0.025);
+          });
+          shake(tl, "#root", 1.14, 12);
+        }
+
+        const out = HOOK_END - 0.3;
+        tl.to("#hk-kicker", { y: -160, opacity: 0, duration: 0.2, ease: "power3.in" }, out);
+        tl.to("#hk-num-wrap", { scale: 1.8, opacity: 0, filter: "blur(16px)", duration: 0.2, ease: "power3.in" }, out);
+        tl.to("#hk-lead", { x: -800, duration: 0.18, ease: "power3.in" }, out);
+        tl.to("#hk-tail", { x: 900, duration: 0.18, ease: "power3.in" }, out);
+        tl.to("#dim", { opacity: 0, duration: 0.2, ease: "power2.in" }, out + 0.04);
+        tl.to("#cam", { scale: 1.0, duration: 0.3, ease: "power2.inOut" }, out + 0.04);
+        tl.set("#hook", { visibility: "hidden" }, HOOK_END);
+      }
+
+      function buildCaptions(tl) {
+        const caps = document.getElementById("caps");
+        let lastPunch = HOOK_END;
+        DATA.groups.forEach(([a, b], gi) => {
+          const words = DATA.words.slice(a, b + 1);
+          const next = DATA.groups[gi + 1];
+          const start = Math.max(words[0].s, HOOK_END);
+          const end = Math.max(start + 0.2, Math.min(words[words.length - 1].e + 1.2, next ? DATA.words[next[0]].s - 0.04 : D, CAP_END));
+          if (end <= start + 0.25) return;
+          const group = document.createElement("div");
+          group.className = "cg";
+          group.style.bottom = CAP_BOTTOM + "px";
+          const longest = words.reduce((x, w) => (w.t.length > x.length ? w.t : x), "");
+          const size = fitSize(longest, 72, 900, FONT);
+          words.forEach((w, i) => {
+            const emph = isEmph(w.t);
+            const box = document.createElement("span");
+            box.className = "cw";
+            box.innerHTML = `<span class="cw-bg"></span><span class="cw-t" style="font-size:${size}px"></span>`;
+            box.lastChild.textContent = w.t;
+            group.appendChild(box);
+            const bg = box.firstChild, t = box.lastChild;
+            const until = Math.min(i + 1 < words.length ? words[i + 1].s : w.e + 0.2, w.s + 0.7, end);
+            if (w.s < start) return;
+            tl.fromTo(bg, { opacity: 0, scaleX: 0.2 }, { opacity: 1, scaleX: 1, duration: 0.12, ease: "power3.out" }, w.s);
+            tl.to(t, { color: "#ffffff", duration: 0.05 }, w.s);
+            tl.fromTo(t, { y: 0, scale: 1 }, { y: -6, scale: emph ? 1.14 : 1.05, duration: 0.1, ease: "power2.out" }, w.s);
+            tl.to(t, { y: 0, scale: 1, duration: 0.25, ease: "back.out(2.5)" }, w.s + 0.1);
+            tl.to(bg, { opacity: 0, duration: 0.1, ease: "power2.in" }, until);
+            tl.to(t, { color: emph ? "#ffd23f" : "#ffffff", duration: 0.1 }, until);
+            if (emph) {
+              tl.to(t, { rotation: -4, duration: FRAME, ease: "none" }, w.s + 0.04);
+              tl.to(t, { rotation: 3, duration: FRAME, ease: "none" }, w.s + 0.04 + FRAME);
+              tl.to(t, { rotation: 0, duration: FRAME, ease: "none" }, w.s + 0.04 + FRAME * 2);
+              if (w.s - lastPunch > 1.4) { punch(tl, w.s, 1.05); lastPunch = w.s; }
+            }
+          });
+          caps.appendChild(group);
+          tl.set(group, { visibility: "visible" }, start);
+          tl.fromTo(group, { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.16, ease: "power3.out" }, start);
+          tl.to(group, { opacity: 0, y: -18, duration: 0.12, ease: "power2.in" }, end - 0.12);
+          tl.set(group, { visibility: "hidden" }, end);
+        });
+      }
+
+      function window_(at, hold) { return [Math.max(HOOK_END + 0.1, at), Math.min(D - 0.05, Math.max(HOOK_END + 0.1, at) + hold)]; }
+
+      function buildStat(tl) {
+        const s = DATA.stat;
+        if (!s || s.at == null || s.at > D - 1) return null;
+        const [at, out] = window_(s.at, s.hold || 3);
+        const parts = split(s.value);
+        const ring = parts && parts.post === "%" && parts.num <= 100;
+        document.getElementById("ring-wrap").style.display = ring ? "" : "none";
+        document.getElementById("stat-big").style.display = ring ? "none" : "";
+        if (!ring) document.getElementById("stat-card").classList.add("plain");
+        document.getElementById("stat-label").textContent = s.label || "";
+        const sub = document.getElementById("stat-sub");
+        sub.textContent = s.sub || "";
+        if (!s.sub) sub.style.display = "none";
+        if (!ring) { const big = document.getElementById("stat-big"); big.style.fontSize = fitSize(s.value, 140, 520, FONT) + "px"; big.textContent = s.value; }
+        else document.getElementById("ring-num").textContent = s.value;
+        place(document.getElementById("stat"), bands().card);
+
+        tl.set("#stat", { visibility: "visible" }, at);
+        tl.fromTo("#stat-card", { y: 60, scale: 0.8, opacity: 0 }, { y: 0, scale: 1, opacity: 1, duration: 0.4, ease: "back.out(1.8)" }, at);
+        if (ring) {
+          const circ = 2 * Math.PI * 110;
+          tl.fromTo("#ring-fill", { strokeDasharray: circ, strokeDashoffset: circ }, { strokeDashoffset: circ * (1 - parts.num / 100), duration: 0.9, ease: "power3.out" }, at + 0.16);
+          count(tl, document.getElementById("ring-num"), s.value, at + 0.16, 0.9);
+        } else {
+          count(tl, document.getElementById("stat-big"), s.value, at + 0.16, 0.8);
+        }
+        tl.fromTo("#stat-label", { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, ease: "power3.out" }, at + 0.3);
+        if (s.sub) {
+          const subAt = Math.min(Math.max(at + 0.6, s.sub_at || at + 0.9), out - 0.6);
+          tl.fromTo("#stat-sub", { scale: 0, rotation: -8 }, { scale: 1, rotation: -2, duration: 0.35, ease: "back.out(3)" }, subAt);
+          shake(tl, "#stat-card", subAt + 0.14, 8);
+        }
+        tl.to("#stat-card", { y: 40, opacity: 0, duration: 0.22, ease: "power2.in" }, out - 0.22);
+        tl.set("#stat", { visibility: "hidden" }, out);
+        return [at, out];
+      }
+
+      function buildDeal(tl) {
+        const d = DATA.deal;
+        if (!d || d.at == null || d.at > D - 1) return null;
+        const [at, out] = window_(d.at, d.hold || 4.5);
+        document.getElementById("deal-kicker").textContent = d.kicker || "The deal";
+        const brand = document.getElementById("deal-brand");
+        brand.textContent = d.brand || "";
+        if (!d.brand) brand.style.display = "none";
+        const value = document.getElementById("deal-value");
+        value.style.fontSize = fitSize(d.value, 140, 470, FONT) + "px";
+        value.textContent = d.value;
+        document.getElementById("deal-sub").textContent = d.sub || "";
+        const strip = document.getElementById("deal-strip");
+        strip.textContent = d.strip || "";
+        if (!d.strip) strip.style.display = "none";
+        place(document.getElementById("deal"), bands().card);
+
+        tl.set("#deal", { visibility: "visible" }, at);
+        tl.fromTo("#deal-card", { y: 140, rotation: 4, opacity: 0 }, { y: 0, rotation: -1.5, opacity: 1, duration: 0.45, ease: "back.out(1.7)" }, at);
+        count(tl, value, d.value, at + 0.2, 0.7);
+        tl.fromTo("#deal-sub", { x: 50, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: "power3.out" }, at + 0.55);
+        if (d.strip) tl.fromTo("#deal-strip", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.45, ease: "power4.out" }, at + 0.8);
+        if (d.brand) {
+          tl.fromTo("#deal-brand", { scale: 0, rotation: -20 }, { scale: 1, rotation: 4, duration: 0.4, ease: "back.out(3)" }, at + 1.1);
+          shake(tl, "#deal-card", at + 1.2, 10);
+        }
+        if (out < D - 0.1) {
+          tl.to("#deal-card", { y: 60, opacity: 0, duration: 0.24, ease: "power2.in" }, out - 0.24);
+          tl.set("#deal", { visibility: "hidden" }, out);
+        }
+        return [at, out];
+      }
+
+      function buildTag(tl, busy) {
+        const sp = DATA.speaker;
+        if (!sp || !sp.name) return;
+        const free = (a, b) => busy.every(([x, y]) => b <= x - 0.2 || a >= y + 0.2);
+        let at = HOOK_END + 0.4;
+        while (at + 3 <= D && !free(at, at + 3)) at += 0.25;
+        if (at + 3 > D) return;
+        const out = at + 3;
+        document.getElementById("tag-name").textContent = sp.name;
+        document.getElementById("tag-role-text").textContent = sp.role || "";
+        if (!sp.role) document.getElementById("tag-role").style.display = "none";
+        place(document.getElementById("tag"), bands().card);
+
+        tl.set("#tag", { visibility: "visible" }, at);
+        tl.fromTo("#tag-block", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.45, ease: "power4.out" }, at);
+        tl.fromTo("#tag-name", { y: 70, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "back.out(1.6)" }, at + 0.15);
+        tl.fromTo("#tag-role", { y: -50, opacity: 0 }, { y: 0, opacity: 1, duration: 0.38, ease: "back.out(2)" }, at + 0.38);
+        tl.fromTo("#tag-dot", { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(3)" }, at + 0.6);
+        tl.to("#tag-dot", { scale: 1.4, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, at + 0.9);
+        tl.to("#tag-stack", { x: -900, duration: 0.35, ease: "power3.in" }, out - 0.35);
+        tl.set("#tag", { visibility: "hidden" }, out);
+      }
+
+      function buildCards(tl) {
+        const shown = [];
+        (DATA.cards || []).forEach((c) => {
+          if (c.at == null || c.at > CAP_END - 1) return;
+          const [at, raw] = window_(c.at, c.hold || 4);
+          const out = Math.min(raw, CAP_END);
+          if (shown.some(([x, y]) => at < y + 0.2 && x < out + 0.2)) return;
+          const band = document.createElement("div");
+          band.className = "band ctx";
+          band.innerHTML = '<div class="ctx-card"><div class="ctx-title"></div><div class="ctx-body"></div></div>';
+          band.querySelector(".ctx-title").textContent = c.title || "";
+          band.querySelector(".ctx-body").textContent = c.body || "";
+          document.getElementById("ctx").appendChild(band);
+          place(band, bands().card);
+          const card = band.firstChild;
+          tl.set(band, { visibility: "visible" }, at);
+          tl.fromTo(card, { x: -120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, ease: "back.out(1.6)" }, at);
+          tl.fromTo(card.lastChild, { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: "power3.out" }, at + 0.2);
+          tl.to(card, { x: 120, opacity: 0, duration: 0.22, ease: "power2.in" }, out - 0.22);
+          tl.set(band, { visibility: "hidden" }, out);
+          shown.push([at, out]);
+        });
+        return shown;
+      }
+
+      function buildTakeaway(tl) {
+        const o = DATA.outro;
+        if (!o || !o.text) return;
+        const el = document.getElementById("takeaway");
+        document.getElementById("takeaway-text").textContent = o.text;
+        place(el, bands().card);
+        tl.set(el, { visibility: "visible" }, o.at);
+        tl.fromTo("#takeaway-card", { scale: 0.6, rotation: -4, opacity: 0 }, { scale: 1, rotation: -1, opacity: 1, duration: 0.45, ease: "back.out(2)" }, o.at);
+        shake(tl, "#takeaway-card", o.at + 0.4, 8);
+      }
+
+      function prepareEnd() {
+        const e = DATA.end;
+        if (!e) return Promise.resolve();
+        const logo = document.getElementById("end-logo");
+        logo.src = e.src;
+        return logo.decode().catch(() => {});
+      }
+
+      function buildEnd(tl) {
+        const e = DATA.end;
+        if (!e) return;
+        const at = D;
+        const end = document.getElementById("end");
+        end.classList.add(e.kind === "avatar" ? "avatar" : "logo");
+        const name = document.getElementById("end-name");
+        const size = fitSize(e.name || "", 104, 900, FONT);
+        name.innerHTML = [...(e.name || "")].map((c) => `<span class="end-g" style="font-size:${size}px">${c === " " ? " " : c}</span>`).join("");
+        if (!e.name) name.style.display = "none";
+        const line = document.getElementById("end-line");
+        line.textContent = e.line || "";
+        if (!e.line) line.style.display = "none";
+
+        tl.to("#progress", { opacity: 0, duration: 0.2, ease: "power2.in" }, at - 0.25);
+        tl.set("#end", { visibility: "visible" }, at);
+        tl.fromTo("#end", { opacity: 0 }, { opacity: 1, duration: 0.12, ease: "none" }, at);
+        tl.fromTo("#end-glow", { scale: 0.3, opacity: 0 }, { scale: 1.1, opacity: 1, duration: 0.6, ease: "expo.out" }, at);
+        tl.to("#end-glow", { scale: 0.95, opacity: 0.7, duration: 1.2, ease: "sine.inOut", yoyo: true, repeat: 1 }, at + 0.6);
+        tl.fromTo("#end-mark", { scale: 0, rotation: -14 }, { scale: 1, rotation: 0, duration: 0.55, ease: "back.out(2.2)" }, at + 0.08);
+        tl.fromTo("#end-ring", { scale: 0.9, opacity: 1 }, { scale: 1.35, opacity: 0, duration: 0.6, ease: "power2.out" }, at + 0.42);
+        shake(tl, "#end-mark", at + 0.4, 12);
+        name.querySelectorAll(".end-g").forEach((g, i) => {
+          tl.fromTo(g, { yPercent: 110, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.36, ease: "back.out(2)" }, at + 0.5 + i * 0.025);
+        });
+        if (e.line) tl.fromTo(line, { scale: 0, rotation: -8 }, { scale: 1, rotation: -2, duration: 0.4, ease: "back.out(3)" }, at + 0.9);
+        tl.to("#end-mark", { y: -14, duration: 0.9, ease: "sine.inOut", yoyo: true, repeat: 1 }, at + 0.7);
+      }
+
+      function build() {
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo("#progress-fill", { scaleX: 0 }, { scaleX: 1, duration: D, ease: "none" }, 0);
+        buildHook(tl);
+        buildCaptions(tl);
+        const busy = [buildStat(tl), buildDeal(tl)].filter(Boolean);
+        buildTag(tl, busy.concat(buildCards(tl)));
+        buildTakeaway(tl);
+        if (DATA.cut) {
+          tl.fromTo("#flash", { opacity: 0 }, { opacity: 0.85, duration: 0.05 }, DATA.cut - 0.03);
+          tl.to("#flash", { opacity: 0, duration: 0.28, ease: "power2.out" }, DATA.cut + 0.02);
+        }
+        tl.fromTo("#fadeout", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.in" }, Math.max(0, DATA.duration - 0.45));
+        buildEnd(tl);
+        tl.seek(0);
+        window.__timelines["reel"] = tl;
+      }
+
+      window.__timelines = window.__timelines || {};
+      Promise.all([document.fonts.load('800 80px "' + FONT + '"'), document.fonts.load('800 30px "Inter"'), prepareEnd()]).then(build, build);
+    </script>
+  </body>
+</html>

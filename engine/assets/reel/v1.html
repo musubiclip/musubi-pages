@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Musubi reel</title>
+    <!--__DATA__-->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Poppins";
+        src: url("fonts/Poppins-ExtraBold.ttf") format("truetype");
+        font-weight: 800;
+      }
+      @font-face {
+        font-family: "Poppins";
+        src: url("fonts/Poppins-SemiBold.ttf") format("truetype");
+        font-weight: 600;
+      }
+      :root {
+        --ink: #111111;
+        --paper: #ffffff;
+        --accent: #ffd400;
+        --hot: #ff3b5c;
+        --shade: rgba(0, 0, 0, 0.62);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #000;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: "Poppins", sans-serif;
+      }
+      #cam,
+      #punch {
+        position: absolute;
+        inset: 0;
+        transform-origin: 50% 40%;
+      }
+      #bg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      #shade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 900px;
+        background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, var(--shade) 70%, rgba(0, 0, 0, 0.75) 100%);
+      }
+      #topshade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 420px;
+        background: linear-gradient(to top, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.35) 100%);
+      }
+      #flash {
+        position: absolute;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+      }
+      #progress {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 10px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+      #progress-fill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--accent);
+        box-shadow: 0 0 18px rgba(255, 212, 0, 0.8);
+        transform-origin: 0% 50%;
+      }
+      #hook {
+        position: absolute;
+        top: 250px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        padding: 0 70px;
+      }
+      #hook-card {
+        position: relative;
+        max-width: 940px;
+        padding: 30px 44px 34px;
+        background: var(--paper);
+        border-radius: 28px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        column-gap: 18px;
+        row-gap: 4px;
+      }
+      .hk-mask {
+        display: inline-block;
+        overflow: hidden;
+        padding: 2px 0 6px;
+      }
+      .hk-word {
+        position: relative;
+        isolation: isolate;
+        display: inline-block;
+        font-weight: 800;
+        font-size: 66px;
+        line-height: 1.12;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+      }
+      .hk-mark {
+        position: absolute;
+        left: -8px;
+        right: -8px;
+        top: 18%;
+        bottom: 6%;
+        background: var(--accent);
+        border-radius: 8px;
+        transform-origin: 0% 50%;
+        z-index: -1;
+      }
+      .hk-text {
+        position: relative;
+        display: inline-block;
+      }
+      #lt {
+        position: absolute;
+        left: 60px;
+        top: 250px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 20px 38px 22px 26px;
+        background: rgba(17, 17, 17, 0.82);
+        border-radius: 999px;
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        opacity: 0;
+      }
+      #lt-dot {
+        display: block;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 14px rgba(255, 212, 0, 0.9);
+      }
+      #lt-name {
+        font-weight: 800;
+        font-size: 46px;
+        line-height: 1.1;
+        color: var(--paper);
+      }
+      #lt-role {
+        font-weight: 600;
+        font-size: 32px;
+        line-height: 1.2;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      #wm {
+        position: absolute;
+        right: 48px;
+        bottom: 64px;
+      }
+      #caps {
+        position: absolute;
+        inset: 0;
+      }
+      .cg {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 560px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-end;
+        column-gap: 10px;
+        row-gap: 6px;
+        padding: 0 80px;
+        opacity: 0;
+        visibility: hidden;
+      }
+      .cw {
+        position: relative;
+        display: inline-block;
+        padding: 4px 16px 8px;
+        font-weight: 800;
+        line-height: 1.05;
+        text-transform: uppercase;
+        letter-spacing: 0.005em;
+        transform-origin: 50% 70%;
+      }
+      .cw-bg {
+        position: absolute;
+        inset: 0;
+        border-radius: 16px;
+        background: var(--accent);
+        opacity: 0;
+        transform-origin: 0% 50%;
+        z-index: 0;
+      }
+      .cw.emph .cw-bg {
+        background: var(--hot);
+      }
+      .cw-t {
+        position: relative;
+        display: inline-block;
+        z-index: 1;
+        color: var(--paper);
+        -webkit-text-stroke: 10px rgba(0, 0, 0, 0.9);
+        paint-order: stroke fill;
+        text-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+      }
+      #fadeout { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="reel" data-start="0" data-duration="__DURATION__" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="punch">
+          <video id="bg" class="clip" src="base.mp4" data-start="0" data-duration="__DURATION__" data-track-index="0" muted playsinline></video>
+        </div>
+      </div>
+      <audio id="bg-audio" src="base.mp4" data-start="0" data-duration="__DURATION__" data-track-index="10" data-volume="1"></audio>
+      <!--__MUSIC__-->
+      <div id="topshade"></div>
+      <div id="shade"></div>
+      <!--__WATERMARK__-->
+      <div id="caps"></div>
+      <div id="lt"><span id="lt-dot"></span><div><div id="lt-name"></div><div id="lt-role"></div></div></div>
+      <div id="hook"><div id="hook-card"></div></div>
+      <div id="flash"></div>
+      <div id="fadeout"></div>
+      <div id="progress"><span id="progress-fill"></span></div>
+    </div>
+    <script>
+      const DATA = window.__REEL_DATA__ || {
+        duration: 8,
+        cut: null,
+        hook: "Encounter pe police ka sach",
+        emphasis: ["police", "sach"],
+        speaker: { name: "Anirudhya Mitra", role: "Investigative journalist" },
+        words: [
+          { t: "Bade", s: 0.1, e: 0.3 }, { t: "se", s: 0.3, e: 0.45 }, { t: "bade", s: 0.45, e: 0.7 },
+          { t: "gangsters", s: 0.7, e: 1.2 }, { t: "ko", s: 1.2, e: 1.35 }, { t: "khatam", s: 1.35, e: 1.7 },
+          { t: "kar", s: 1.7, e: 1.85 }, { t: "diya", s: 1.85, e: 2.1 }, { t: "gaya.", s: 2.1, e: 2.5 },
+          { t: "Vikas", s: 3.0, e: 3.4 }, { t: "Dubey.", s: 3.4, e: 3.9 }, { t: "Gaadi", s: 4.2, e: 4.5 },
+          { t: "palatne", s: 4.5, e: 4.9 }, { t: "se", s: 4.9, e: 5.0 }, { t: "mar", s: 5.0, e: 5.2 }, { t: "gaye.", s: 5.2, e: 5.6 }
+        ],
+        groups: [[0, 2], [3, 5], [6, 8], [9, 10], [11, 13], [14, 15]]
+      };
+
+      const HOOK_END = Math.min(2.9, DATA.duration - 0.4);
+      const EMPH = new Set((DATA.emphasis || []).map(clean));
+
+      function clean(text) {
+        return String(text).toLowerCase().replace(/[^\p{L}\p{N}₹$%]/gu, "");
+      }
+
+      function isEmphasis(text) {
+        const c = clean(text);
+        return c.length > 0 && (EMPH.has(c) || /[0-9₹$%]/.test(c));
+      }
+
+      const measure = document.createElement("canvas").getContext("2d");
+      function fitSize(text, base, maxWidth) {
+        let size = base;
+        while (size > base * 0.6) {
+          measure.font = "800 " + size + "px Poppins";
+          if (measure.measureText(text).width <= maxWidth) return size;
+          size -= 2;
+        }
+        return Math.round(base * 0.6);
+      }
+
+      const CAP_BOTTOM = captionBottom();
+      const CAP_TOP = 1920 - CAP_BOTTOM - 200;
+
+      function captionBottom() {
+        if (!DATA.face) return 560;
+        const chin = 960 + (DATA.face[1] - 960) * 1.13;
+        return Math.round(Math.min(560, Math.max(190, 1920 - chin - 40 - 200)));
+      }
+
+      function hookTop(height) {
+        if (!DATA.face) return 250;
+        const [top, bottom] = DATA.face;
+        const above = top - 100 - height;
+        if (above >= 110) return Math.min(250, above);
+        if (bottom + 40 + height <= CAP_TOP - 20) return bottom + 40;
+        return Math.min(Math.max(bottom, 1920 - CAP_BOTTOM) + 40, 1740 - height);
+      }
+
+      function buildHook(tl) {
+        const card = document.getElementById("hook-card");
+        const words = String(DATA.hook || "").split(/\s+/).filter(Boolean);
+        if (!words.length) {
+          document.getElementById("hook").style.display = "none";
+          return;
+        }
+        const longest = words.reduce((a, b) => (b.length > a.length ? b : a), "");
+        const size = fitSize(longest, 80, 820);
+        const inner = [];
+        words.forEach((word, i) => {
+          const mask = document.createElement("span");
+          mask.className = "hk-mask";
+          const w = document.createElement("span");
+          w.className = "hk-word";
+          w.id = "hk-w-" + i;
+          w.style.fontSize = size + "px";
+          if (isEmphasis(word)) {
+            const mark = document.createElement("span");
+            mark.className = "hk-mark";
+            mark.id = "hk-m-" + i;
+            w.appendChild(mark);
+          }
+          const t = document.createElement("span");
+          t.className = "hk-text";
+          t.textContent = word;
+          w.appendChild(t);
+          mask.appendChild(w);
+          card.appendChild(mask);
+          inner.push(w);
+        });
+        document.getElementById("hook").style.top = hookTop(card.offsetHeight) + "px";
+        tl.fromTo(card, { scale: 0.86, rotation: -4, opacity: 0 }, { scale: 1, rotation: -2, opacity: 1, duration: 0.32, ease: "back.out(2.2)" }, 0);
+        tl.fromTo(inner, { yPercent: 115 }, { yPercent: 0, duration: 0.34, ease: "power3.out", stagger: 0.05 }, 0.08);
+        card.querySelectorAll(".hk-mark").forEach((mark, i) => {
+          tl.fromTo(mark, { scaleX: 0 }, { scaleX: 1, duration: 0.28, ease: "power2.out" }, 0.45 + i * 0.12);
+        });
+        tl.to(card, { y: -60, scale: 0.92, opacity: 0, duration: 0.3, ease: "power2.in" }, HOOK_END);
+      }
+
+      function buildSpeaker(tl) {
+        const lt = document.getElementById("lt");
+        if (!DATA.speaker || !DATA.speaker.name || DATA.duration < HOOK_END + 4) {
+          lt.style.display = "none";
+          return;
+        }
+        document.getElementById("lt-name").textContent = DATA.speaker.name;
+        document.getElementById("lt-role").textContent = DATA.speaker.role || "";
+        const inAt = HOOK_END + 0.3;
+        tl.fromTo(lt, { x: -80, opacity: 0 }, { x: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, inAt);
+        tl.fromTo("#lt-dot", { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(3)" }, inAt + 0.2);
+        tl.to(lt, { x: -40, opacity: 0, duration: 0.3, ease: "power2.in" }, inAt + 3.6);
+      }
+
+      function buildCaptions(tl) {
+        const caps = document.getElementById("caps");
+        let lastPunch = -10;
+        DATA.groups.forEach((pair, gi) => {
+          const words = DATA.words.slice(pair[0], pair[1] + 1);
+          const next = DATA.groups[gi + 1];
+          const nextStart = next ? DATA.words[next[0]].s : DATA.duration;
+          const start = words[0].s;
+          const end = Math.max(start + 0.2, Math.min(words[words.length - 1].e + 1.2, nextStart - 0.04));
+          const group = document.createElement("div");
+          group.className = "cg";
+          group.id = "cg-" + gi;
+          group.style.bottom = CAP_BOTTOM + "px";
+          const size = fitSize(words.reduce((a, w) => (w.t.length > a.length ? w.t : a), "").toUpperCase(), 70, 860);
+          words.forEach((w, i) => {
+            const idx = pair[0] + i;
+            const emph = isEmphasis(w.t);
+            const box = document.createElement("span");
+            box.className = "cw" + (emph ? " emph" : "");
+            box.id = "cw-" + idx;
+            box.style.fontSize = size + "px";
+            const bg = document.createElement("span");
+            bg.className = "cw-bg";
+            bg.id = "cw-bg-" + idx;
+            const t = document.createElement("span");
+            t.className = "cw-t";
+            t.id = "cw-t-" + idx;
+            t.textContent = w.t;
+            box.appendChild(bg);
+            box.appendChild(t);
+            group.appendChild(box);
+
+            const until = i + 1 < words.length ? words[i + 1].s : Math.min(w.e + 0.2, end);
+            tl.fromTo(t, { opacity: 0.6 }, { opacity: 1, duration: 0.06 }, w.s);
+            if (emph) {
+              tl.fromTo(t, { scale: 1, rotation: 0 }, { scale: 1.14, rotation: -3, duration: 0.14, ease: "power2.out" }, w.s + 0.05);
+              tl.to(t, { scale: 1, rotation: 0, duration: 0.3, ease: "back.out(2)" }, w.s + 0.19);
+            }
+            tl.fromTo(bg, { opacity: 0, scaleX: 0.3 }, { opacity: 1, scaleX: 1, duration: 0.12, ease: "power2.out" }, w.s);
+            tl.to(t, { color: emph ? "#ffffff" : "#111111", duration: 0.06 }, w.s);
+            tl.to(t, { "-webkit-text-stroke-color": emph ? "rgba(0,0,0,0.9)" : "rgba(0,0,0,0)", duration: 0.06 }, w.s);
+            tl.to(bg, { opacity: 0, duration: 0.1, ease: "power2.in" }, until);
+            tl.to(t, { color: emph ? "#ffd400" : "#ffffff", "-webkit-text-stroke-color": "rgba(0,0,0,0.9)", duration: 0.1 }, until);
+            if (emph && w.s - lastPunch > 1.4) {
+              tl.fromTo("#punch", { scale: 1 }, { scale: 1.06, duration: 0.14, ease: "power2.out" }, w.s);
+              tl.to("#punch", { scale: 1, duration: 0.7, ease: "power2.inOut" }, w.s + 0.14);
+              lastPunch = w.s;
+            }
+          });
+          caps.appendChild(group);
+          tl.set(group, { visibility: "visible" }, start);
+          tl.fromTo(group, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.14, ease: "power2.out" }, start);
+          tl.to(group, { opacity: 0, y: -14, duration: 0.12, ease: "power2.in" }, end - 0.12);
+          tl.set(group, { visibility: "hidden", y: 0 }, end);
+        });
+      }
+
+      function build() {
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo("#progress-fill", { scaleX: 0 }, { scaleX: 1, duration: DATA.duration, ease: "none" }, 0);
+        tl.fromTo("#cam", { scale: 1.0 }, { scale: 1.07, duration: DATA.duration, ease: "none" }, 0);
+        buildHook(tl);
+        buildSpeaker(tl);
+        buildCaptions(tl);
+        if (DATA.cut) {
+          tl.fromTo("#flash", { opacity: 0 }, { opacity: 0.85, duration: 0.05 }, DATA.cut - 0.03);
+          tl.to("#flash", { opacity: 0, duration: 0.28, ease: "power2.out" }, DATA.cut + 0.02);
+        }
+        tl.fromTo("#fadeout", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.in" }, Math.max(0, DATA.duration - 0.45));
+        tl.seek(0);
+        window.__timelines["reel"] = tl;
+      }
+
+      Promise.all([document.fonts.load('800 84px "Poppins"'), document.fonts.load('600 26px "Poppins"')]).then(build, build);
+    </script>
+  </body>
+</html>
