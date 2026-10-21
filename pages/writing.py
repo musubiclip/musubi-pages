@@ -9,6 +9,11 @@ RESTRICTED = ("flags is an EMPTY list unless one of these restricted topics appl
               "Put no other notes in flags. Never make such claims yourself.")
 
 
+def _topics(page) -> str:
+    # pages.toml gives a string; tolerate a list too
+    return page.topics if isinstance(page.topics, str) else ", ".join(page.topics)
+
+
 # --- Moments (adapted from musubi-clips SKILL.md §2) ---
 
 class HookParts(BaseModel):
@@ -106,7 +111,7 @@ class Layer(BaseModel):
 
 def write_layer(page, moment: Moment, text: str) -> Layer:
     prompt = (f"You write the original layer for a reel on the Instagram page @{page.handle} "
-              f"(topics: {', '.join(page.topics)}), in the page's voice, in English.\n"
+              f"(topics: {_topics(page)}), in the page's voice, in English.\n"
               "- intro: a voiceover of 8 to 16 words that sets up the clip.\n"
               "- takeaway: a voiceover of 6 to 10 words that closes it.\n"
               f"- cards: 1 to 3 context cards with facts the clip does not say. Each `at` is in source seconds "
@@ -139,7 +144,7 @@ def _hashtags(tags: list[str]) -> list[str]:
 
 
 def write_caption(page, about: str, credits: list[str], previous: list[str]) -> str:
-    prompt = (f"Write an Instagram caption in English for a reel on @{page.handle} (topics: {', '.join(page.topics)}). "
+    prompt = (f"Write an Instagram caption in English for a reel on @{page.handle} (topics: {_topics(page)}). "
               "Open with a line that makes people read on, use the keywords someone would search for, "
               "keep it short, no hashtags in the text. Then give up to 5 relevant hashtags. "
               "Never make exaggerated health claims, cosmetic procedure claims, get rich promises, "
@@ -178,7 +183,7 @@ class Script(BaseModel):
 def write_script(page, used_ideas: list[str]) -> Script:
     used = "\n".join(f"- {i}" for i in used_ideas) or "- none yet"
     prompt = (f"Write a voiceover script for a reel on the Instagram page @{page.handle} "
-              f"(topics: {', '.join(page.topics)}), in English.\n"
+              f"(topics: {_topics(page)}), in English.\n"
               "- Pick a fresh idea, not one of these used ideas:\n" + used + "\n"
               "- 20 to 45 seconds when spoken, about 55 to 110 words.\n"
               "- 5 to 7 beats. The first beat is the hook line, the last is the closing line. Each beat has the "

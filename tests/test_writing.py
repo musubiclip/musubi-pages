@@ -95,6 +95,18 @@ def test_script_prompt_lists_used_ideas_and_validates_beats(monkeypatch):
     assert "why cats knead" in seen["p"] and "billikalesh" in seen["p"] and "cats" in seen["p"]
 
 
+def test_topics_string_used_verbatim(monkeypatch):
+    topics = "cats, dogs, wild animals and nature: funny facts"
+    page = SimpleNamespace(handle="billikalesh", topics=topics)
+    seen = []
+    monkeypatch.setattr(llm, "ask", lambda p, s: (seen.append(p), {writing.Layer: layer(120.0), writing.Script: SCRIPT_WITH_4_BEATS}.get(s) or s(text="t", hashtags=[]))[1])
+    writing.write_layer(page, M(), "text")
+    writing.write_caption(page, "a", [], previous=[])
+    with pytest.raises(ValueError):
+        writing.write_script(page, [])
+    assert len(seen) == 3 and all(topics in p for p in seen)
+
+
 def test_script_hook_over_8_words(monkeypatch):
     s = SCRIPT_WITH_4_BEATS.model_copy(update={"beats": SCRIPT_WITH_4_BEATS.beats[:3] * 2, "hook_text": "one two three four five six seven eight nine"})
     monkeypatch.setattr(llm, "ask", lambda p, sc: s)
