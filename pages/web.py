@@ -40,7 +40,8 @@ def _allowed(request: Request) -> bool:
         _jwks[team] = jwt.PyJWKClient(f"https://{team}/cdn-cgi/access/certs")
     try:
         key = _jwks[team].get_signing_key_from_jwt(token).key
-        claims = jwt.decode(token, key, algorithms=["RS256"], audience=aud)
+        claims = jwt.decode(token, key, algorithms=["RS256"], audience=aud,
+                            options={"require": ["exp", "email"]})
     except Exception:  # any bad, expired or unverifiable token is a plain 403
         return False
     return str(claims.get("email", "")).lower().endswith("@musubiclip.com")
@@ -112,8 +113,11 @@ async def approve(cid: int, caption: str = Form(""), db=Depends(get_db)):
 async def reject(cid: int, reason: str = Form(""), db=Depends(get_db)):
     if not reason.strip():
         raise HTTPException(400, "a reason is required")
-    db.execute("update clips set status = 'rejected', reason = ? where id = ?", (reason.strip(), cid))
+    cur = db.execute("update clips set status = 'rejected', reason = ? where id = ? and status = 'draft'",
+                     (reason.strip(), cid))
     db.commit()
+    if not cur.rowcount:
+        raise HTTPException(409, "clip is not a draft")
     return _home()
 
 

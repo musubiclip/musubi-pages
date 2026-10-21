@@ -78,6 +78,9 @@ def test_reject_needs_a_reason(client, d):
     assert client.post(f"/clips/{cid}/reject", data={"reason": ""}).status_code == 400
     assert client.post(f"/clips/{cid}/reject", data={"reason": "off topic"}, follow_redirects=False).status_code == 303
     assert tuple(status(d, cid))[::2] == ("rejected", "off topic")
+    sid = add_clip(d, "podcastbawaal", "scheduled")
+    assert client.post(f"/clips/{sid}/reject", data={"reason": "late"}).status_code == 409
+    assert status(d, sid)["status"] == "scheduled"
 
 
 @pytest.mark.parametrize("days, warned", [(9, True), (11, False)])
@@ -160,11 +163,15 @@ def test_access_allows_only_musubiclip_emails(client, monkeypatch):
     monkeypatch.setenv("CF_ACCESS_AUD", "aud")
     monkeypatch.setenv("CF_ACCESS_TEAM", "musubi.cloudflareaccess.com")
 
-    def get(email, aud="aud"):
-        token = jwt.encode({"email": email, "aud": aud}, key, algorithm="RS256")
+    def get(email, aud="aud", exp=True):
+        claims = {"email": email, "aud": aud}
+        if exp:
+            claims["exp"] = datetime.now(UTC) + timedelta(minutes=5)
+        token = jwt.encode(claims, key, algorithm="RS256")
         return client.get("/", headers={"Cf-Access-Jwt-Assertion": token}).status_code
 
     assert get("a@gmail.com") == 403
     assert get("a@musubiclip.com.evil.com") == 403
     assert get("prateek@musubiclip.com", aud="other") == 403
+    assert get("prateek@musubiclip.com", exp=False) == 403
     assert get("Prateek@MusubiClip.com") == 200
