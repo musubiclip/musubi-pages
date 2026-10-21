@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Copy to ~/Library/LaunchAgents/, fill in the placeholders, then: launchctl load ~/Library/LaunchAgents/com.musubi.pages-fetcher.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.musubi.pages-fetcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>uv run pages fetch</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>REPO_PATH</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PAGES_STORE</key>
+        <string>s3://BUCKET_NAME</string>
+        <key>AWS_PROFILE</key>
+        <string>musubi-pages-mac</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/USER/Library/Logs/musubi-pages-fetcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USER/Library/Logs/musubi-pages-fetcher.log</string>
+</dict>
+</plist>
