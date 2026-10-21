@@ -1,6 +1,7 @@
 import statistics
 from datetime import datetime, timedelta
 
+from pages import db as dbm
 from pages import ig
 from pages.schedule import IST
 
@@ -19,12 +20,19 @@ def fetch_due(db, now: datetime) -> None:
         for clip in clips:
             done = {r[0] for r in db.execute("select due from insights where clip_id = ?", (clip["id"],))}
             age = now - datetime.fromisoformat(clip["published_at"])
-            for due in [k for k, wait in DUE.items() if age >= wait and k not in done]:
+            reached = [k for k, wait in DUE.items() if age >= wait]
+            # Only the latest reached point: on catch-up, current numbers must not be filed under earlier points.
+            if not reached or reached[-1] in done:
+                continue
+            try:
                 m = ig.media_insights(clip["media_id"], page["token"])
-                db.execute("insert into insights values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                           (clip["id"], due, now.isoformat(), m["views"], m["reach"], m["likes"], m["comments"],
-                            m["saved"], m["shares"], m["ig_reels_avg_watch_time"]))
-                db.commit()
+            except Exception as e:
+                dbm.event(db, page["handle"], "insights_failed", f"clip {clip['id']}: {e}")
+                continue
+            db.execute("insert into insights values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       (clip["id"], reached[-1], now.isoformat(), m["views"], m["reach"], m["likes"],
+                        m["comments"], m["saved"], m["shares"], m["ig_reels_avg_watch_time"]))
+            db.commit()
 
 
 def daily_account(db, cfg, now: datetime) -> None:
@@ -34,8 +42,12 @@ def daily_account(db, cfg, now: datetime) -> None:
         if db.execute("select 1 from account_daily where page = ? and day = ?",
                       (page["handle"], yesterday.isoformat())).fetchone():
             continue
-        followers = ig.me(page["token"])["followers_count"]
-        v = ig.account_views(page["ig_user_id"], page["token"], yesterday, today)
+        try:
+            followers = ig.me(page["token"])["followers_count"]
+            v = ig.account_views(page["ig_user_id"], page["token"], yesterday, today)
+        except Exception as e:
+            dbm.event(db, page["handle"], "insights_failed", f"account: {e}")
+            continue
         non_follower = v["non_follower"] if cfg.api.get("follower_type_views") else None
         db.execute("insert into account_daily values (?, ?, ?, ?, ?)",
                    (page["handle"], yesterday.isoformat(), followers, v["total"], non_follower))

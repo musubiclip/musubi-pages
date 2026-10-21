@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from helpers import add_clip
-from pages import insights
+from pages import ig, insights
 
 T = datetime(2026, 11, 2, 6, 0, tzinfo=UTC)
 
@@ -33,6 +33,30 @@ def test_no_insights_for_disconnected_page(d, fake_ig):
     add_clip(d, "billikalesh", "published", media_id="m1", published_at=T.isoformat())
     insights.fetch_due(d, T + timedelta(days=8))
     assert fake_ig.insight_calls == []
+
+
+def test_catch_up_makes_one_call_and_stores_only_the_latest_point(d, fake_ig):
+    connect(d)
+    add_clip(d, "billikalesh", "published", media_id="m1", published_at=T.isoformat())
+    insights.fetch_due(d, T + timedelta(days=8))
+    assert fake_ig.insight_calls == ["m1"] and dues(d) == ["7d"]
+
+
+def test_one_failing_clip_does_not_stop_the_next(d, fake_ig, monkeypatch):
+    connect(d)
+    bad = add_clip(d, "billikalesh", "published", media_id="bad", published_at=T.isoformat())
+    good = add_clip(d, "billikalesh", "published", media_id="m2", published_at=T.isoformat())
+    real = fake_ig.media_insights
+
+    def flaky(media_id, token):
+        if media_id == "bad":
+            raise ig.IGError(100, None, "gone")
+        return real(media_id, token)
+    monkeypatch.setattr(ig, "media_insights", flaky)
+    insights.fetch_due(d, T + timedelta(hours=2))
+    assert [r[0] for r in d.execute("select clip_id from insights")] == [good]
+    detail = d.execute("select detail from events where kind = 'insights_failed'").fetchone()[0]
+    assert detail.startswith(f"clip {bad}:")
 
 
 def test_daily_account_once_per_ist_day(d, cfg, fake_ig):
