@@ -145,3 +145,40 @@ def test_unpause_gives_fresh_slots_not_a_burst(d, cfg, fake_ig, monkeypatch):
     assert times[1] - times[0] >= timedelta(hours=3)
     publish.publish_due(d, cfg, later)
     assert fake_ig.published == []
+
+
+def test_permalink_failure_never_publishes_twice(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+
+    def boom(m, t):
+        raise ig.IGError(2, None, "temporary")
+    monkeypatch.setattr(ig, "media", boom)
+    publish.publish_due(d, cfg, NOW)
+    publish.publish_due(d, cfg, NOW + timedelta(minutes=20))
+    row = clip(d, c)
+    assert (row["status"], row["media_id"]) == ("published", "m1") and fake_ig.published == ["c1"]
+    assert d.execute("select count(*) from events where kind='permalink_failed'").fetchone()[0] == 1
+
+
+def test_reconnect_after_expired_token_reslots_instead_of_bursting(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    fake_ig.fail_create = ig.IGError(190, None, "Error validating access token")
+    due(d, 2)
+    publish.publish_due(d, cfg, NOW)
+    fake_ig.fail_create = None
+    later = NOW + timedelta(days=3)
+    d.execute("update pages set token_expires_at=? where handle=?", ((later + timedelta(days=50)).isoformat(), P))
+    d.commit()
+    publish.publish_due(d, cfg, later)
+    assert fake_ig.published == []
+    times = sorted(datetime.fromisoformat(r[0]) for r in d.execute("select scheduled_at from clips"))
+    assert len(times) == 2 and all(t > later for t in times)
+    assert times[1] - times[0] >= timedelta(hours=3)
+
+
+def test_two_clips_due_at_once_publish_one_per_tick(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    due(d, 2)
+    publish.publish_due(d, cfg, NOW)
+    assert len(fake_ig.published) == 1

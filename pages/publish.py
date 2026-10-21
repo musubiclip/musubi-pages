@@ -49,10 +49,30 @@ def publish_due(db, cfg, now: datetime) -> None:
         page = _live_pages(db, now).get(clip["page"]) if clip else None
         if not page:
             continue
+        # No bursts after downtime: a late clip, or one too close to the last post, gets a fresh slot.
+        last = db.execute("select max(published_at) from clips where page = ?", (clip["page"],)).fetchone()[0]
+        late = now - datetime.fromisoformat(clip["scheduled_at"]) > timedelta(minutes=60)
+        if late or (last and now - datetime.fromisoformat(last) < timedelta(hours=3)):
+            _reslot(db, cfg, clip, now)
+            continue
         try:
             _publish_one(db, cfg, clip, page, now)
         except ig.IGError as e:
             _handle_error(db, clip, e, now)
+
+
+def _reslot(db, cfg, clip, now: datetime) -> None:
+    page = cfg.pages[clip["page"]]
+    taken = [datetime.fromisoformat(r[0]) for r in db.execute(
+        "select coalesce(published_at, scheduled_at) from clips where page = ? and id != ? "
+        "and (published_at is not null or scheduled_at is not null)", (clip["page"], clip["id"]))]
+    slot = schedule.pick_slot(clip["page"], now, taken, page.window, page.daily_target)
+    if slot is None:  # no room in two weeks: back to approved for schedule_approved to retry
+        db.execute("update clips set status = 'approved', scheduled_at = null where id = ?", (clip["id"],))
+    else:
+        db.execute("update clips set scheduled_at = ? where id = ?", (slot.isoformat(), clip["id"]))
+    db.commit()
+    dbm.event(db, clip["page"], "rescheduled", f"clip {clip['id']} -> {slot.isoformat() if slot else 'approved'}")
 
 
 def _publish_one(db, cfg, clip, page, now: datetime) -> None:
@@ -78,13 +98,19 @@ def _publish_one(db, cfg, clip, page, now: datetime) -> None:
         dbm.event(db, clip["page"], "copyright_match", f"clip {clip['id']}")
         return
     media_id = ig.publish(uid, token, container_id)
-    permalink = ig.media(media_id, token).get("permalink")
-    db.execute("update clips set status = 'published', media_id = ?, permalink = ?, published_at = ? where id = ?",
-               (media_id, permalink, now.isoformat(), clip["id"]))
+    # Record the post before anything else can fail, or the retry path would publish it twice.
+    db.execute("update clips set status = 'published', media_id = ?, published_at = ? where id = ?",
+               (media_id, now.isoformat(), clip["id"]))
     db.execute("update pages set first_post_at = coalesce(first_post_at, ?) where handle = ?",
                (now.isoformat(), clip["page"]))
     db.commit()
-    dbm.event(db, clip["page"], "published", f"clip {clip['id']} {permalink}")
+    dbm.event(db, clip["page"], "published", f"clip {clip['id']} media {media_id}")
+    try:
+        permalink = ig.media(media_id, token).get("permalink")
+        db.execute("update clips set permalink = ? where id = ?", (permalink, clip["id"]))
+        db.commit()
+    except Exception as e:  # noqa: BLE001 - the post is live; a missing permalink must never retry it
+        dbm.event(db, clip["page"], "permalink_failed", f"clip {clip['id']}: {e}")
 
 
 def _handle_error(db, clip, e: ig.IGError, now: datetime) -> None:
