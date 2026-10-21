@@ -1,6 +1,7 @@
 """Mac side: the YouTube work (`pages fetch`). Reads jobs from the store, writes results back."""
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime
 
 from pages import config, store  # noqa: F401  config first: it sets MUSUBI_CLIPS_DIR for the engine
@@ -32,11 +33,13 @@ def prepare(job) -> bool:
     workdir = clipper.work_root() / vid
     try:
         clipper.prepare(job["url"])
-    except SystemExit as e:  # the engine exits when YouTube has no captions
+    except (SystemExit, Exception) as e:  # the engine exits when YouTube has no captions
         workdir.mkdir(parents=True, exist_ok=True)
-        (workdir / "error.txt").write_text(str(e.code))
+        (workdir / "error.txt").write_text(str(e.code if isinstance(e, SystemExit) else e))
         store.put(base + "error.txt", workdir / "error.txt")
-        return True
+        if isinstance(e, SystemExit):
+            return True
+        raise
     for f in [*(workdir / n for n in PREPARED), *sorted(workdir.glob("captions.*.json3"))]:
         store.put(base + f.name, f)
     return True
@@ -60,16 +63,19 @@ def sections(job) -> bool:
 
 def run_jobs() -> dict:
     jobs = store.get_json("jobs/fetch.json", {})
-    done = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0}
-    for job in jobs.get("watch", []):
-        watch(job)
-        done["watch"] += 1
-    done["prepare"] = sum(prepare(job) for job in jobs.get("prepare", []))
-    done["sections"] = sum(sections(job) for job in jobs.get("sections", []))
+    done = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "failed": 0}
     cc = store.get_json("jobs/cc.json", [])
     if cc:
         from pages.script_pipeline import fetch_cc
-        for job in cc:
-            fetch_cc(job)
-        done["cc"] = len(cc)
+    work = [("watch", watch, jobs.get("watch", [])), ("prepare", prepare, jobs.get("prepare", [])),
+            ("sections", sections, jobs.get("sections", [])), ("cc", lambda j: fetch_cc(j) or True, cc)]
+    for kind, fn, items in work:
+        for job in items:
+            # One bad job must not block the rest: it stays queued and would fail first every run.
+            try:
+                if fn(job) is not False:
+                    done[kind] += 1
+            except Exception as e:
+                print(f"{kind} failed for {job}: {e}", file=sys.stderr, flush=True)
+                done["failed"] += 1
     return done

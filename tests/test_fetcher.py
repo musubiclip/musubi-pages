@@ -4,7 +4,7 @@ import subprocess
 from engine import clipper
 from pages import fetcher, store
 
-NOTHING = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0}
+NOTHING = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "failed": 0}
 
 
 def jobs(**kw):
@@ -87,6 +87,25 @@ def test_fetcher_skips_work_already_in_the_store(local_store, tmp_path, monkeypa
     assert fetcher.run_jobs() == NOTHING
     assert fetcher.run_jobs() == NOTHING
     assert calls == [] and store.keys("") == before
+
+
+def test_one_bad_prepare_never_blocks_the_rest(local_store, tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_DIR", str(tmp_path / "work"))
+    calls = []
+
+    def fake_prepare(url):
+        calls.append(url)
+        if url == "bad":
+            raise RuntimeError("video is private")
+        w = tmp_path / "work" / url
+        w.mkdir(parents=True)
+        for name in fetcher.PREPARED:
+            (w / name).write_text("{}")
+    monkeypatch.setattr(clipper, "prepare", fake_prepare)
+    jobs(prepare=[{"video_id": "bad", "url": "bad"}, {"video_id": "good", "url": "good"}])
+    done = fetcher.run_jobs()
+    assert calls == ["bad", "good"] and done["failed"] == 1 and done["prepare"] == 1
+    assert (local_store / "work/bad/error.txt").read_text() == "video is private"
 
 
 def test_no_jobs_file_does_nothing(local_store):
