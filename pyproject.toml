@@ -1,0 +1,34 @@
+[project]
+name = "musubi-pages"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "python-multipart",
+    "boto3",
+    "anthropic[bedrock]",
+    "pydantic",
+    "pyjwt[crypto]",
+    "opencv-python-headless",
+]
+
+[dependency-groups]
+dev = ["pytest", "httpx"]
+
+[project.scripts]
+pages = "pages.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pages", "engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "engine"]
+pythonpath = ["tests"]
+markers = ["slow: needs ffmpeg/node/network"]
+addopts = "-m 'not slow'"
