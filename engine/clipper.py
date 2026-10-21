@@ -28,7 +28,6 @@ MUSIC = {"file": None, "volume": 0.12}
 END = {"choice": None, "name": "", "line": "", "screen": None}
 END_SECONDS = 2.6
 IMAGE_TYPES = {"image/svg+xml": ".svg", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
-WORK = Path(os.environ.get("MUSUBI_CLIPS_DIR", Path.home() / "MusubiClips"))
 FACE_MODEL = Path.home() / ".cache" / "musubi-clips" / "face_detection_yunet_2023mar.onnx"
 FACE_MODEL_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 YTDLP = ["yt-dlp"] + (["--cookies-from-browser", os.environ["MUSUBI_CLIPS_COOKIES"]] if os.environ.get("MUSUBI_CLIPS_COOKIES") else [])
@@ -39,7 +38,16 @@ MIN_FACE = 0.05
 LEAD, TAIL = 0.25, 0.7
 SENTENCE_REACH = 1.2
 FADE_IN, FADE_OUT, JOIN_FADE = 0.15, 0.5, 0.08
-SECTION_PAD = 3.0
+SECTION_PAD = 8.0
+
+
+def work_root():
+    return Path(os.environ.get("MUSUBI_CLIPS_DIR", Path.home() / "MusubiClips"))
+
+
+def offline():
+    """Server mode: never call YouTube, use only the sections already fetched."""
+    return os.environ.get("MUSUBI_CLIPS_OFFLINE") == "1"
 
 
 def run(cmd, cwd=None):
@@ -60,11 +68,11 @@ VIDEO_FORMAT = "bv*[height<=1080][vcodec^=avc1]/bv*[height<=1080][ext=mp4]/bv*[h
 def fetch(source):
     if Path(source).is_file():
         path = Path(source).resolve()
-        workdir = WORK / re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)
+        workdir = work_root() / re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)
         workdir.mkdir(parents=True, exist_ok=True)
         return workdir, path, {"title": path.stem, "url": "", "path": str(path)}
     video_id = run([*YTDLP, "--print", "id", "--skip-download", source]).stdout.strip().splitlines()[-1]
-    workdir = WORK / video_id
+    workdir = work_root() / video_id
     workdir.mkdir(parents=True, exist_ok=True)
     if not source_audio(workdir):
         log(f"downloading the audio of {source}")
@@ -106,7 +114,7 @@ def cached_stream(workdir, url):
 
 
 def find_stream(workdir, meta):
-    if (workdir / "source.mp4").exists() or not meta.get("url"):
+    if (workdir / "source.mp4").exists() or not meta.get("url") or offline():
         return None
     log("finding the video stream")
     for attempt in range(3):
@@ -156,7 +164,9 @@ def video_section(workdir, meta, clip, stream):
     found = covering_section(folder, min(a for a, _ in pieces) - 0.5, max(b for _, b in pieces) + 0.5)
     if found:
         return found, float(found.stem.split("-")[0])
-    start = max(0.0, min(a for a, _ in pieces) - SECTION_PAD)
+    if offline():
+        raise RuntimeError(f"no section covers {min(a for a, _ in pieces):.2f}-{max(b for _, b in pieces):.2f}")
+    start =max(0.0, min(a for a, _ in pieces) - SECTION_PAD)
     end = max(b for _, b in pieces) + SECTION_PAD
     final = folder / f"{start:.2f}-{end:.2f}.mp4"
     out = final.with_suffix(".part.mp4")
@@ -601,6 +611,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """ + "\n".join(events) + "\n"
 
 
+def frame_filter(src_w, src_h, crop_w, crop_h, steps, faces_seen):
+    """A wide source is always cropped to the full 9:16, following the face where one was seen; never letterboxed."""
+    if src_w / src_h > 9 / 16 + 0.01:
+        return f"crop={crop_w}:{crop_h}:x='{crop_expression(steps)}':y=0,scale={OUT_W}:{OUT_H}"
+    return f"scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=increase,crop={OUT_W}:{OUT_H}"
+
+
 def cut_graph(video, clip, detector, subtitles=None):
     import cv2
 
@@ -627,13 +644,7 @@ def cut_graph(video, clip, detector, subtitles=None):
     capture.release()
 
     joined = "".join(f"[v{i}][a{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=1[cv][ca]"
-    if src_w / src_h > 9 / 16 + 0.01 and sum(seen) < len(seen) / 2:
-        frame = (f"split[bg][fg];[bg]scale=-2:{OUT_H},crop={OUT_W}:{OUT_H},boxblur=30:2[blur];"
-                 f"[fg]scale={OUT_W}:-2[fit];[blur][fit]overlay=0:(H-h)/2")
-    elif src_w / src_h > 9 / 16 + 0.01:
-        frame = f"crop={crop_w}:{crop_h}:x='{crop_expression(steps)}':y=0,scale={OUT_W}:{OUT_H}"
-    else:
-        frame = f"scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=decrease,pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2"
+    frame = frame_filter(src_w, src_h, crop_w, crop_h, steps, seen)
     if not subtitles:
         return ";".join(parts + [joined, f"[cv]{frame},setsar=1[vo]"])
     if not STYLE["watermark"]:
@@ -730,7 +741,26 @@ def node_ok():
     return int(version.split(".")[0]) >= 22
 
 
-def render_styled(workdir, video, clip, words, name, detector, clip_dir, parallel):
+def rgb(colour):
+    return ", ".join(str(int(colour.lstrip("#")[i:i + 2], 16)) for i in (0, 2, 4))
+
+
+def reel_page(reel, design, total, duration, music_tag, theme, watermark=False):
+    data = json.dumps(reel, ensure_ascii=False)
+    html = REEL_TEMPLATES[design].read_text(encoding="utf-8")
+    html = html.replace("<!--__MUSIC__-->", music_tag).replace("__TOTAL__", f"{total}").replace("__DURATION__", f"{duration}").replace("<!--__DATA__-->", f"<script>window.__REEL_DATA__ = {data};</script>")
+    html = html.replace("<!--__WATERMARK__-->", '<img id="wm" src="watermark.png" alt="" />' if watermark else "")
+    if theme:
+        font = theme["font"]
+        html = html.replace("#ff5a1f", theme["hot"]).replace("255, 90, 31", rgb(theme["hot"]))
+        html = html.replace("#ffd23f", theme["sun"]).replace("255, 210, 63", rgb(theme["sun"]))
+        html = html.replace('--display: "Bricolage Grotesque", sans-serif;', f'--display: "{font}", sans-serif;')
+        html = html.replace('const FONT = "Bricolage Grotesque";', f'const FONT = "{font}";')
+        html = html.replace("<style>", f'<style>\n      @font-face {{ font-family: "{font}"; src: url("fonts/{font}-ExtraBold.ttf") format("truetype"); font-weight: 800; }}', 1)
+    return html
+
+
+def render_styled(workdir, video, clip, words, name, detector, out, parallel, *, design, watermark, end, music, theme=None):
     project = workdir / "reel" / name
     if project.exists():
         shutil.rmtree(project)
@@ -738,34 +768,48 @@ def render_styled(workdir, video, clip, words, name, detector, clip_dir, paralle
     for font in FONTS.glob("*.ttf"):
         shutil.copy(font, project / "fonts" / font.name)
     shutil.copy(WATERMARK, project / WATERMARK.name)
-    end = END["screen"]
     if end:
         shutil.copy(end["logo"], project / end["logo"].name)
-    music = ""
-    if MUSIC["file"]:
-        shutil.copy(MUSIC["file"], project / ("music" + Path(MUSIC["file"]).suffix))
-        music = (f'<audio id="music" src="music{Path(MUSIC["file"]).suffix}" data-start="0" data-duration="__TOTAL__" '
-                 f'data-track-index="11" data-volume="{MUSIC["volume"]}"></audio>')
+    music_tag = ""
+    if music:
+        shutil.copy(music, project / ("music" + Path(music).suffix))
+        music_tag = (f'<audio id="music" src="music{Path(music).suffix}" data-start="0" data-duration="__TOTAL__" '
+                     f'data-track-index="11" data-volume="{MUSIC["volume"]}"></audio>')
     cut(video, clip, cut_graph(video, clip, detector), project / "base.mp4", project, fast_encoder())
     duration = round(duration_of(project / "base.mp4") - 0.05, 3)
     reel = reel_data(clip, words, duration, face_span(project / "base.mp4", detector))
     if end:
         reel["end"] = {"src": end["logo"].name, "kind": end["kind"], "name": end["name"], "line": end["line"], "seconds": END_SECONDS}
-    data = json.dumps(reel, ensure_ascii=False)
     total = round(duration + (END_SECONDS if end else 0), 3)
-    html = REEL_TEMPLATES[STYLE["design"]].read_text(encoding="utf-8")
-    html = html.replace("<!--__MUSIC__-->", music).replace("__TOTAL__", f"{total}").replace("__DURATION__", f"{duration}").replace("<!--__DATA__-->", f"<script>window.__REEL_DATA__ = {data};</script>")
-    html = html.replace("<!--__WATERMARK__-->", '<img id="wm" src="watermark.png" alt="" />' if STYLE["watermark"] else "")
+    html = reel_page(reel, design, total, duration, music_tag, theme, watermark)
     (project / "index.html").write_text(encoding="utf-8", data=html)
-    command = [npx(), "--yes", HYPERFRAMES, "render", str(project), "-o", str(clip_dir / f"{name}.mp4"),
+    command = [npx(), "--yes", HYPERFRAMES, "render", str(project), "-o", str(out),
                "--crf", "23", "--fps", "30", "--quiet"]
     if sys.platform == "win32" or JOBS == 1:
         command += ["--workers", "1"]
     elif parallel:
         command += ["--workers", "2"]
     done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if done.returncode != 0 or not (clip_dir / f"{name}.mp4").exists():
+    if done.returncode != 0 or not out.exists():
         sys.exit(f"hyperframes render failed for {name}:\n{(done.stderr or done.stdout)[-1500:]}")
+
+
+def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None):
+    """One moment, design v2, no watermark, no end screen."""
+    meta = json.loads((workdir / "meta.json").read_text(encoding="utf-8"))
+    words = all_words(json.loads((workdir / "transcript.json").read_text(encoding="utf-8")))
+    clips = tidy_clips([moment], words, 1)
+    if not clips:
+        raise ValueError(f"moment {moment['start']}-{moment['end']} must be {MIN_CLIP:.0f} to {MAX_CLIP:.0f} seconds")
+    clip = clips[0]
+    words = english_words(workdir, meta.get("language", "en")) or words
+    video, offset = video_section(workdir, meta, clip, find_stream(workdir, meta))
+    clip, words = shifted(clip, words, offset)
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    render_styled(workdir, video, clip, words, out.stem, face_detector(), out, False,
+                  design="v2", watermark=False, end=None, music=music, theme=theme)
+    return out
 
 
 def render_basic(video, clip, words, name, detector, clip_dir):
@@ -791,7 +835,8 @@ def render(workdir, clip, words, index, styled, section, parallel):
     clip, words = shifted(clip, words, offset)
     detector = face_detector()
     if styled:
-        render_styled(workdir, video, clip, words, name, detector, clip_dir, parallel)
+        render_styled(workdir, video, clip, words, name, detector, clip_dir / f"{name}.mp4", parallel,
+                      design=STYLE["design"], watermark=STYLE["watermark"], end=END["screen"], music=MUSIC["file"])
     else:
         render_basic(video, clip, words, name, detector, clip_dir)
     log(f"done: {name}.mp4")
@@ -870,8 +915,8 @@ def fetch_sections(workdir, count):
 @contextlib.contextmanager
 def render_lock():
     """One render per machine at a time, so several videos in a batch do not all slow each other down."""
-    WORK.mkdir(parents=True, exist_ok=True)
-    with open(WORK / ".render.lock", "a+") as handle:
+    work_root().mkdir(parents=True, exist_ok=True)
+    with open(work_root() / ".render.lock", "a+") as handle:
         handle.seek(0)
         waiting = False
         while True:
@@ -965,13 +1010,13 @@ def doctor():
         ok = ok and has_ass
     node_hint = "winget install OpenJS.NodeJS.LTS" if sys.platform == "win32" else "brew install node"
     print(f"node 22+ (animated clips): {'ok' if node_ok() else 'missing (' + node_hint + '), clips fall back to basic captions'}")
-    print(f"clips folder: {WORK}")
+    print(f"clips folder: {work_root()}")
     sys.exit(0 if ok else 1)
 
 
 def workdir_for(value):
     path = Path(value).expanduser().resolve()
-    return path if path.is_dir() else WORK / value
+    return path if path.is_dir() else work_root() / value
 
 
 def main():

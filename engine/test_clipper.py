@@ -174,3 +174,38 @@ def test_end_screen_takes_a_logo_file_and_needs_a_video_for_the_channel(tmp_path
     with pytest.raises(SystemExit):
         end_screen(tmp_path)
     END.update(choice=None)
+
+
+import pytest
+
+from engine import clipper
+
+MOMENT_30S = {"start": 10.0, "end": 40.0, "title": "Fixture", "hook_text": "Ninety percent is just water",
+              "hook_parts": {"kicker": "Your cleaner is", "big": "90%", "punch": "Just water"}, "reason": "r",
+              "hook": 3, "standalone": 3, "payoff": 3, "emotion": 3}
+THEME = {"hot": "#7c5cff", "sun": "#ffd23f", "font": "Poppins"}
+
+
+def test_offline_never_calls_youtube(tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    monkeypatch.setattr(clipper, "run", lambda *a, **k: pytest.fail("called " + a[0][0]))
+    assert clipper.find_stream(tmp_path, {"url": "https://youtu.be/x"}) is None
+    with pytest.raises(RuntimeError, match="no section covers"):
+        clipper.video_section(tmp_path, {"url": "https://youtu.be/x"}, {"start": 10, "end": 40, "cold_open": None}, None)
+
+
+def test_faceless_wide_shots_are_cropped_not_letterboxed():
+    f = clipper.frame_filter(1920, 1080, 608, 1080, [(0, 656)], [False, False, False])
+    assert f.startswith("crop=608:1080") and "boxblur" not in f
+
+
+def test_theme_sets_colours_and_font():
+    html = clipper.reel_page({"duration": 30}, "v2", 30, 30, "", {"hot": "#7c5cff", "sun": "#ffd23f", "font": "Poppins"})
+    assert "--hot: #7c5cff" in html and "--display: \"Poppins\"" in html and "Poppins-ExtraBold.ttf" in html
+
+
+@pytest.mark.slow
+def test_render_one_makes_a_vertical_reel(fixture_workdir, tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    out = clipper.render_one(fixture_workdir, MOMENT_30S, tmp_path / "r.mp4", theme=THEME)
+    assert clipper.probe_size(out) == (1080, 1920) and 29 < clipper.duration_of(out) < 32

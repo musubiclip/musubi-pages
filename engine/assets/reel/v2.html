@@ -179,6 +179,7 @@
 
       const D = DATA.duration;
       const FRAME = 1 / 30;
+      const FONT = "Bricolage Grotesque";
       const HOOK_END = Math.min(1.85, D - 0.4);
       const EMPH = new Set((DATA.emphasis || []).map(clean));
       const measure = document.createElement("canvas").getContext("2d");
@@ -268,19 +269,19 @@
 
         const kicker = document.getElementById("hk-kicker");
         const kWords = String(parts.kicker || "").split(/\s+/).filter(Boolean);
-        const kSize = Math.max(44, fitSize(kWords.join(" ").toUpperCase(), 64, 900, "Bricolage Grotesque"));
+        const kSize = Math.max(44, fitSize(kWords.join(" ").toUpperCase(), 64, 900, FONT));
         kicker.innerHTML = kWords.map((w) => `<span class="hk-k" style="font-size:${kSize}px">${w}</span>`).join("");
         if (!kWords.length) kicker.style.display = "none";
 
         const num = document.getElementById("hk-num");
-        if (parts.big) { num.style.fontSize = fitSize(parts.big, 340, 900, "Bricolage Grotesque") + "px"; num.textContent = parts.big; }
+        if (parts.big) { num.style.fontSize = fitSize(parts.big, 340, 900, FONT) + "px"; num.textContent = parts.big; }
         else document.getElementById("hk-num-wrap").style.display = "none";
 
         const pWords = String(parts.punch || "").split(/\s+/).filter(Boolean);
         const tailText = pWords.length > 1 ? pWords.slice(1).join(" ") : pWords.join(" ");
         const leadText = pWords.length > 1 ? pWords[0] : "";
         const lead = document.getElementById("hk-lead");
-        const tSize = fitSize(tailText.toUpperCase(), 124, 860, "Bricolage Grotesque");
+        const tSize = fitSize(tailText.toUpperCase(), 124, 860, FONT);
         lead.textContent = leadText;
         lead.style.fontSize = Math.min(116, tSize) + "px";
         if (!leadText) lead.style.display = "none";
@@ -337,7 +338,7 @@
           group.className = "cg";
           group.style.bottom = CAP_BOTTOM + "px";
           const longest = words.reduce((x, w) => (w.t.length > x.length ? w.t : x), "");
-          const size = fitSize(longest, 72, 900, "Bricolage Grotesque");
+          const size = fitSize(longest, 72, 900, FONT);
           words.forEach((w, i) => {
             const emph = isEmph(w.t);
             const box = document.createElement("span");
@@ -384,7 +385,7 @@
         const sub = document.getElementById("stat-sub");
         sub.textContent = s.sub || "";
         if (!s.sub) sub.style.display = "none";
-        if (!ring) { const big = document.getElementById("stat-big"); big.style.fontSize = fitSize(s.value, 140, 520, "Bricolage Grotesque") + "px"; big.textContent = s.value; }
+        if (!ring) { const big = document.getElementById("stat-big"); big.style.fontSize = fitSize(s.value, 140, 520, FONT) + "px"; big.textContent = s.value; }
         else document.getElementById("ring-num").textContent = s.value;
         place(document.getElementById("stat"), bands().card);
 
@@ -417,7 +418,7 @@
         brand.textContent = d.brand || "";
         if (!d.brand) brand.style.display = "none";
         const value = document.getElementById("deal-value");
-        value.style.fontSize = fitSize(d.value, 140, 470, "Bricolage Grotesque") + "px";
+        value.style.fontSize = fitSize(d.value, 140, 470, FONT) + "px";
         value.textContent = d.value;
         document.getElementById("deal-sub").textContent = d.sub || "";
         const strip = document.getElementById("deal-strip");
@@ -479,7 +480,7 @@
         const end = document.getElementById("end");
         end.classList.add(e.kind === "avatar" ? "avatar" : "logo");
         const name = document.getElementById("end-name");
-        const size = fitSize(e.name || "", 104, 900, "Bricolage Grotesque");
+        const size = fitSize(e.name || "", 104, 900, FONT);
         name.innerHTML = [...(e.name || "")].map((c) => `<span class="end-g" style="font-size:${size}px">${c === " " ? " " : c}</span>`).join("");
         if (!e.name) name.style.display = "none";
         const line = document.getElementById("end-line");
@@ -519,7 +520,7 @@
       }
 
       window.__timelines = window.__timelines || {};
-      Promise.all([document.fonts.load('800 80px "Bricolage Grotesque"'), document.fonts.load('800 30px "Inter"'), prepareEnd()]).then(build, build);
+      Promise.all([document.fonts.load('800 80px "' + FONT + '"'), document.fonts.load('800 30px "Inter"'), prepareEnd()]).then(build, build);
     </script>
   </body>
 </html>
