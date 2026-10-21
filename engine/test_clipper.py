@@ -209,3 +209,43 @@ def test_render_one_makes_a_vertical_reel(fixture_workdir, tmp_path, monkeypatch
     monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
     out = clipper.render_one(fixture_workdir, MOMENT_30S, tmp_path / "r.mp4", theme=THEME)
     assert clipper.probe_size(out) == (1080, 1920) and 29 < clipper.duration_of(out) < 32
+
+
+WORDS_95_TO_141 = [word(f"w{i}", 95.0 + i * 0.5, 95.4 + i * 0.5) for i in range(92)]
+CARDS = [{"at": 15.0, "title": "Who", "body": "Ex ISRO engineer", "hold": 4}, {"at": 28.0, "title": "Why", "body": "Built it in a garage", "hold": 4}]
+
+
+def tidied(start, end):
+    return {"start": start, "end": end, "cold_open": None, "skip": [], "hook_text": "h", "title": "t"}
+
+
+def test_intro_moves_captions_after_the_voiceover():
+    clip = {**tidied(100.0, 140.0), "intro": 4.0}
+    assert clipper.pieces_for(clip)[0] == (clip["start"] - 4.0, clip["start"])
+    data = clipper.reel_data(clip, WORDS_95_TO_141, duration=44.0)
+    assert data["intro"] == {"seconds": 4.0} and min(w["s"] for w in data["words"]) >= 4.0
+
+
+def test_cards_land_in_reel_time_after_the_intro():
+    clip = {**tidied(100.0, 140.0), "intro": 4.0, "cards": [{"at": 110.0, "title": "Who", "body": "Ex ISRO", "hold": 4}]}
+    card = clipper.reel_data(clip, WORDS_95_TO_141, duration=44.0)["cards"][0]
+    assert card["at"] == round(4.0 + 110.0 - clip["start"], 3) and card["title"] == "Who"
+
+
+def test_outro_starts_when_the_moment_ends():
+    clip = {**tidied(100.0, 140.0), "intro": 4.0, "outro": {"seconds": 3.0, "text": "Save this"}}
+    out = clipper.reel_data(clip, WORDS_95_TO_141, duration=47.0)["outro"]
+    assert out == {"at": round(4.0 + clip["end"] - clip["start"], 3), "seconds": 3.0, "text": "Save this"}
+
+
+def test_cards_move_with_the_section():
+    moved, _ = clipper.shifted({**tidied(100.0, 140.0), "cards": [{"at": 110.0, "title": "Who"}]}, [], 90.0)
+    assert moved["cards"][0]["at"] == 20.0
+
+
+@pytest.mark.slow
+def test_render_one_with_the_layer_is_intro_plus_clip_plus_outro(fixture_workdir, tmp_path, vo_4s, vo_3s, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    out = clipper.render_one(fixture_workdir, {**MOMENT_30S, "cards": CARDS}, tmp_path / "r.mp4", theme=THEME,
+                             intro={"audio": vo_4s, "seconds": 4.0}, outro={"audio": vo_3s, "seconds": 3.0, "text": "Save this"})
+    assert 36.5 < clipper.duration_of(out) < 38.5

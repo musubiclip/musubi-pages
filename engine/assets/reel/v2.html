@@ -81,6 +81,13 @@
       #deal-value { font: 800 140px/0.9 var(--display); letter-spacing: -0.03em; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
       #deal-sub { font: 800 46px/1.1 var(--display); color: var(--hot); }
       #deal-strip { background: var(--ink); color: var(--paper); font: 800 32px/1 var(--text); letter-spacing: 0.14em; text-transform: uppercase; padding: 22px 40px; clip-path: inset(0 100% 0 0); }
+      .ctx { visibility: hidden; padding: 0 70px; }
+      .ctx-card { max-width: 900px; padding: 30px 44px 34px; background: var(--glass); border: 2px solid rgba(255, 255, 255, 0.12); border-left: 14px solid var(--hot); border-radius: 30px; }
+      .ctx-title { font: 800 34px/1 var(--text); letter-spacing: 0.16em; text-transform: uppercase; color: var(--sun); }
+      .ctx-body { margin-top: 14px; font: 800 60px/1.08 var(--display); color: var(--paper); }
+      #takeaway { visibility: hidden; padding: 0 70px; }
+      #takeaway-card { max-width: 920px; padding: 40px 52px 46px; background: var(--hot); border-radius: 36px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); text-align: center; }
+      #takeaway-text { font: 800 76px/1.08 var(--display); color: var(--paper); }
       #fadeout { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 
       #end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; padding: 0 70px; background: var(--ink); visibility: hidden; }
@@ -143,6 +150,9 @@
         </div>
       </div>
 
+      <div id="ctx"></div>
+      <div id="takeaway" class="band"><div id="takeaway-card"><div id="takeaway-text"></div></div></div>
+
       <div id="hook" class="band">
         <div id="hk-kicker"></div>
         <div id="hk-num-wrap"><div id="hk-glow"></div><div id="hk-num"></div></div>
@@ -180,7 +190,8 @@
       const D = DATA.duration;
       const FRAME = 1 / 30;
       const FONT = "Bricolage Grotesque";
-      const HOOK_END = Math.min(1.85, D - 0.4);
+      const HOOK_END = Math.min(Math.max(1.85, DATA.intro ? DATA.intro.seconds : 0), D - 0.4);
+      const CAP_END = DATA.outro ? DATA.outro.at : D;
       const EMPH = new Set((DATA.emphasis || []).map(clean));
       const measure = document.createElement("canvas").getContext("2d");
 
@@ -332,7 +343,7 @@
           const words = DATA.words.slice(a, b + 1);
           const next = DATA.groups[gi + 1];
           const start = Math.max(words[0].s, HOOK_END);
-          const end = Math.max(start + 0.2, Math.min(words[words.length - 1].e + 1.2, next ? DATA.words[next[0]].s - 0.04 : D));
+          const end = Math.max(start + 0.2, Math.min(words[words.length - 1].e + 1.2, next ? DATA.words[next[0]].s - 0.04 : D, CAP_END));
           if (end <= start + 0.25) return;
           const group = document.createElement("div");
           group.className = "cg";
@@ -465,6 +476,42 @@
         tl.set("#tag", { visibility: "hidden" }, out);
       }
 
+      function buildCards(tl) {
+        const shown = [];
+        (DATA.cards || []).forEach((c) => {
+          if (c.at == null || c.at > CAP_END - 1) return;
+          const [at, raw] = window_(c.at, c.hold || 4);
+          const out = Math.min(raw, CAP_END);
+          if (shown.some(([x, y]) => at < y + 0.2 && x < out + 0.2)) return;
+          const band = document.createElement("div");
+          band.className = "band ctx";
+          band.innerHTML = '<div class="ctx-card"><div class="ctx-title"></div><div class="ctx-body"></div></div>';
+          band.querySelector(".ctx-title").textContent = c.title || "";
+          band.querySelector(".ctx-body").textContent = c.body || "";
+          document.getElementById("ctx").appendChild(band);
+          place(band, bands().card);
+          const card = band.firstChild;
+          tl.set(band, { visibility: "visible" }, at);
+          tl.fromTo(card, { x: -120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, ease: "back.out(1.6)" }, at);
+          tl.fromTo(card.lastChild, { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: "power3.out" }, at + 0.2);
+          tl.to(card, { x: 120, opacity: 0, duration: 0.22, ease: "power2.in" }, out - 0.22);
+          tl.set(band, { visibility: "hidden" }, out);
+          shown.push([at, out]);
+        });
+        return shown;
+      }
+
+      function buildTakeaway(tl) {
+        const o = DATA.outro;
+        if (!o || !o.text) return;
+        const el = document.getElementById("takeaway");
+        document.getElementById("takeaway-text").textContent = o.text;
+        place(el, bands().card);
+        tl.set(el, { visibility: "visible" }, o.at);
+        tl.fromTo("#takeaway-card", { scale: 0.6, rotation: -4, opacity: 0 }, { scale: 1, rotation: -1, opacity: 1, duration: 0.45, ease: "back.out(2)" }, o.at);
+        shake(tl, "#takeaway-card", o.at + 0.4, 8);
+      }
+
       function prepareEnd() {
         const e = DATA.end;
         if (!e) return Promise.resolve();
@@ -508,7 +555,8 @@
         buildHook(tl);
         buildCaptions(tl);
         const busy = [buildStat(tl), buildDeal(tl)].filter(Boolean);
-        buildTag(tl, busy);
+        buildTag(tl, busy.concat(buildCards(tl)));
+        buildTakeaway(tl);
         if (DATA.cut) {
           tl.fromTo("#flash", { opacity: 0 }, { opacity: 0.85, duration: 0.05 }, DATA.cut - 0.03);
           tl.to("#flash", { opacity: 0, duration: 0.28, ease: "power2.out" }, DATA.cut + 0.02);

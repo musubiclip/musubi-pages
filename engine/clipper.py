@@ -207,6 +207,8 @@ def shifted(clip, words, offset):
     for key in ("stat", "deal"):
         if isinstance(clip.get(key), dict):
             moved[key] = {**clip[key], **{k: clip[key][k] - offset for k in ("at", "sub_at") if isinstance(clip[key].get(k), (int, float))}}
+    if clip.get("cards"):
+        moved["cards"] = [{**c, "at": c["at"] - offset} for c in clip["cards"]]
     return moved, [{**w, "start": w["start"] - offset, "end": w["end"] - offset} for w in words]
 
 
@@ -545,6 +547,8 @@ def pieces_for(clip):
         main.append((at, a))
         at = b
     main.append((at, clip["end"]))
+    if clip.get("intro"):
+        return [(clip["start"] - clip["intro"], clip["start"])] + main
     return ([tuple(clip["cold_open"])] if clip["cold_open"] else []) + main
 
 
@@ -572,7 +576,10 @@ def ass_escape(text):
 
 def clip_timeline(clip, words):
     timeline, offset = [], 0.0
-    for a, b in pieces_for(clip):
+    for i, (a, b) in enumerate(pieces_for(clip)):
+        if i == 0 and clip.get("intro"):
+            offset += b - a
+            continue
         piece = [{"word": w["word"], "start": w["start"] - a + offset, "end": min(w["end"], b) - a + offset}
                  for w in words if a - 0.05 <= w["start"] < b]
         if piece and timeline:
@@ -624,7 +631,7 @@ def cut_graph(video, clip, detector, subtitles=None):
     src_w, src_h = probe_size(video)
     pieces = pieces_for(clip)
     focus = clip.get("focus_x")
-    base = clip["start"]
+    base = min(a for a, _ in pieces)
     parts, steps, offset, seen = [], [], 0.0, []
     capture = cv2.VideoCapture(str(video))
     crop_h = round(src_h * STYLE["keep_height"] / 2) * 2
@@ -632,8 +639,9 @@ def cut_graph(video, clip, detector, subtitles=None):
     for i, (a, b) in enumerate(pieces):
         fade_in = FADE_IN if i == 0 else JOIN_FADE
         fade_out = FADE_OUT if i == len(pieces) - 1 else JOIN_FADE
+        quiet = "volume=0.12," if i == 0 and clip.get("intro") else ""
         parts.append(f"[0:v]trim=start={a - base:.3f}:end={b - base:.3f},setpts=PTS-STARTPTS[v{i}];"
-                     f"[0:a]atrim=start={a - base:.3f}:end={b - base:.3f},asetpts=PTS-STARTPTS,"
+                     f"[0:a]atrim=start={a - base:.3f}:end={b - base:.3f},asetpts=PTS-STARTPTS,{quiet}"
                      f"afade=t=in:st=0:d={fade_in},afade=t=out:st={max(0.0, b - a - fade_out):.3f}:d={fade_out}[a{i}]")
         bounds = [a] + [t for t in shot_cuts(video, a, b) if a + 0.3 < t < b - 0.3] + [b]
         for s, e in zip(bounds, bounds[1:]):
@@ -645,6 +653,10 @@ def cut_graph(video, clip, detector, subtitles=None):
 
     joined = "".join(f"[v{i}][a{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=1[cv][ca]"
     frame = frame_filter(src_w, src_h, crop_w, crop_h, steps, seen)
+    if not subtitles and clip.get("outro"):
+        hold = clip["outro"]["seconds"]
+        joined = joined.replace("[cv][ca]", "[cv][cj]") + f";[cj]apad=pad_dur={hold}[ca]"
+        return ";".join(parts + [joined, f"[cv]{frame},setsar=1,tpad=stop_mode=clone:stop_duration={hold}[vo]"])
     if not subtitles:
         return ";".join(parts + [joined, f"[cv]{frame},setsar=1[vo]"])
     if not STYLE["watermark"]:
@@ -654,7 +666,8 @@ def cut_graph(video, clip, detector, subtitles=None):
 
 
 def cut(video, clip, graph, out, cwd, encoder=("-c:v", "libx264", "-preset", "veryfast", "-crf", "18")):
-    run(["ffmpeg", "-y", "-ss", f"{clip['start']}", "-t", f"{clip['end'] - clip['start']}", "-i", str(video),
+    start = min(a for a, _ in pieces_for(clip))
+    run(["ffmpeg", "-y", "-ss", f"{start}", "-t", f"{clip['end'] - start}", "-i", str(video),
          "-filter_complex", graph, "-map", "[vo]", "-map", "[ca]",
          *encoder, "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)], cwd=cwd)
 
@@ -678,6 +691,10 @@ def reel_data(clip, words, duration, face=None):
         "speaker": {"name": name, "role": (clip.get("speaker_role") or "").strip()} if name else None,
         "words": [{"t": w["word"], "s": round(max(0.0, w["start"]), 3), "e": round(w["end"], 3)} for w in timeline],
         "groups": groups,
+        "intro": {"seconds": clip["intro"]} if clip.get("intro") else None,
+        "outro": {"at": round(sum(b - a for a, b in pieces_for(clip)), 3), "seconds": clip["outro"]["seconds"],
+                  "text": clip["outro"]["text"]} if clip.get("outro") else None,
+        "cards": [{**c, "at": at} for c in clip.get("cards") or [] if (at := clip_time(clip, c["at"])) is not None],
     }
 
 
@@ -760,7 +777,7 @@ def reel_page(reel, design, total, duration, music_tag, theme, watermark=False):
     return html
 
 
-def render_styled(workdir, video, clip, words, name, detector, out, parallel, *, design, watermark, end, music, theme=None):
+def render_styled(workdir, video, clip, words, name, detector, out, parallel, *, design, watermark, end, music, theme=None, voices=None):
     project = workdir / "reel" / name
     if project.exists():
         shutil.rmtree(project)
@@ -781,6 +798,11 @@ def render_styled(workdir, video, clip, words, name, detector, out, parallel, *,
     if end:
         reel["end"] = {"src": end["logo"].name, "kind": end["kind"], "name": end["name"], "line": end["line"], "seconds": END_SECONDS}
     total = round(duration + (END_SECONDS if end else 0), 3)
+    for track, (key, audio) in enumerate((voices or {}).items(), 12):
+        start = reel[key]["at"] if key == "outro" else 0
+        shutil.copy(audio, project / f"{key}{Path(audio).suffix}")
+        music_tag += (f'<audio id="vo-{key}" src="{key}{Path(audio).suffix}" data-start="{start}" '
+                      f'data-duration="{round(duration_of(audio), 3)}" data-track-index="{track}" data-volume="1"></audio>')
     html = reel_page(reel, design, total, duration, music_tag, theme, watermark)
     (project / "index.html").write_text(encoding="utf-8", data=html)
     command = [npx(), "--yes", HYPERFRAMES, "render", str(project), "-o", str(out),
@@ -805,10 +827,17 @@ def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, musi
     words = english_words(workdir, meta.get("language", "en")) or words
     video, offset = video_section(workdir, meta, clip, find_stream(workdir, meta))
     clip, words = shifted(clip, words, offset)
+    voices = {}
+    if intro:
+        clip = {**clip, "intro": intro["seconds"], "cold_open": None}
+        voices["intro"] = intro["audio"]
+    if outro:
+        clip = {**clip, "outro": {"seconds": outro["seconds"], "text": outro["text"]}}
+        voices["outro"] = outro["audio"]
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     render_styled(workdir, video, clip, words, out.stem, face_detector(), out, False,
-                  design="v2", watermark=False, end=None, music=music, theme=theme)
+                  design="v2", watermark=False, end=None, music=music, theme=theme, voices=voices)
     return out
 
 
