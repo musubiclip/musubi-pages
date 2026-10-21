@@ -1,0 +1,204 @@
+"""Clip pipeline (podcastbawaal): jobs for the Mac, intake, pasted links, moment picking, making clips."""
+import json
+import os
+import re
+from datetime import UTC, datetime
+from pathlib import Path
+
+from pages import config, store, voice, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
+from pages.db import QUEUE_LOW, queue_size
+from engine import clipper
+
+MUSIC_TAGS = ("[Music]", "[संगीत]", "♪")
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _set(db, row, status, note=None) -> None:
+    db.execute("update source_videos set status = ?, note = coalesce(?, note) where id = ?", (status, note, row["id"]))
+    db.commit()
+
+
+def _channels(cfg, page=None):
+    return [s for s in cfg.sources.values() if s.kind == "youtube_channel" and (page is None or s.page == page)]
+
+
+def write_jobs(db, cfg) -> None:
+    videos = lambda status: db.execute("select * from source_videos where status = ? order by id", (status,)).fetchall()
+    store.put_json("jobs/fetch.json", {
+        "watch": [{"source": s.id, "url": s.url} for s in _channels(cfg) if queue_size(db, s.page) < QUEUE_LOW],
+        "prepare": [{"video_id": v["video_id"], "url": v["url"]} for v in videos("new")],
+        "sections": [{"video_id": v["video_id"], "url": v["url"], "count": cfg.pages[v["page"]].clips_per_video}
+                     for v in videos("picked")],
+        "cc_search": [],
+    })
+
+
+def take_inbox(db, cfg) -> None:
+    for src in _channels(cfg):
+        since = src.since.isoformat() if src.since else ""
+        for v in store.get_json(f"inbox/{src.id}.json", []):
+            if v.get("published") and v["published"] < since:
+                continue
+            db.execute("insert or ignore into source_videos (source_id, page, video_id, url, title, published, status, "
+                       "created_at) values (?, ?, ?, ?, ?, ?, 'new', ?)",
+                       (src.id, src.page, v["video_id"], v["url"], v.get("title"), v.get("published"), _now()))
+    db.commit()
+
+
+def video_id(url: str) -> str | None:
+    m = re.match(r"https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|shorts/))([\w-]+)", url.strip())
+    return m[1] if m else None
+
+
+def add_link(db, cfg, url: str, page: str, note: str) -> int:
+    if page not in cfg.pages:
+        raise ValueError(f"unknown page {page}")
+    vid = video_id(url)
+    if not vid:
+        raise ValueError(f"not a YouTube video link: {url}")
+    used = db.execute("select page from source_videos where video_id = ?", (vid,)).fetchone()
+    if used:
+        raise ValueError(f"already used by {used['page']}")
+    cur = db.execute("insert into source_videos (source_id, page, video_id, url, status, note, created_at) "
+                     "values (null, ?, ?, ?, 'new', ?, ?)",
+                     (page, vid, f"https://www.youtube.com/watch?v={vid}", note or None, _now()))
+    db.commit()
+    return cur.lastrowid
+
+
+def belongs(info: dict, source_url: str) -> bool:
+    norm = lambda u: (u or "").strip().rstrip("/").lower()
+    return bool(source_url) and norm(source_url) in {norm(info.get("channel_url")), norm(info.get("uploader_url"))}
+
+
+def advance(db, cfg) -> None:
+    for row in db.execute("select * from source_videos where status = 'new'").fetchall():
+        base = f"work/{row['video_id']}/"
+        if store.exists(base + "error.txt"):
+            _set(db, row, "skipped", _text(base + "error.txt"))
+        elif store.exists(base + "transcript.json"):
+            if row["source_id"]:
+                _set(db, row, "prepared")
+                continue
+            info = store.get_json(base + "source-audio.info.json", {})
+            src = next((s for s in _channels(cfg, row["page"]) if belongs(info, s.url)), None)
+            if src:
+                db.execute("update source_videos set source_id = ? where id = ?", (src.id, row["id"]))
+                _set(db, row, "prepared")
+            elif row["note"]:
+                _set(db, row, "prepared")  # a one-off permission, recorded in the note
+            else:
+                _set(db, row, "skipped", "not an allowed source")
+    for row in db.execute("select * from source_videos where status = 'picked'").fetchall():
+        if store.exists(f"work/{row['video_id']}/sections.done"):
+            _set(db, row, "fetched")
+
+
+def _text(key: str) -> str:
+    return store.get(key, config.HOME / "tmp" / key).read_text().strip()
+
+
+def _pull(vid: str) -> Path:
+    """Copy work/<vid>/ from the store into the local work folder."""
+    workdir = config.HOME / "work" / vid
+    for key in store.keys(f"work/{vid}/"):
+        store.get(key, workdir / key[len(f"work/{vid}/"):])
+    return workdir
+
+
+# --- pick ---
+
+def music_spans(json3_text: str) -> list[tuple[float, float]]:
+    spans = []
+    for e in json.loads(json3_text).get("events", []):
+        text = "".join(s.get("utf8", "") for s in e.get("segs") or [])
+        if any(tag in text for tag in MUSIC_TAGS):
+            start = e["tStartMs"] / 1000
+            spans.append((start, start + e.get("dDurationMs", 0) / 1000))
+    return spans
+
+
+def pick(db, cfg, video_row) -> None:
+    page, vid = cfg.pages[video_row["page"]], video_row["video_id"]
+    workdir = _pull(vid)
+    meta = json.loads((workdir / "meta.json").read_text())
+    transcript = json.loads((workdir / "transcript.json").read_text())
+    music = [s for f in workdir.glob("captions.*.json3") for s in music_spans(f.read_text())]
+    found = writing.pick_moments((workdir / "transcript.txt").read_text(), video_row["title"] or meta["title"],
+                                 page.clips_per_video)
+    good = []
+    for m in (m.model_dump() for m in found):
+        if clipper.moment_problems([m]) or not 30 <= m["end"] - m["start"] <= 90:
+            continue
+        if any(a < m["end"] and m["start"] < b for a, b in music):
+            continue
+        good.append(m)
+    kept = clipper.tidy_clips(good, clipper.all_words(transcript), page.clips_per_video)
+    if not kept:
+        _set(db, video_row, "skipped", "no usable moments")
+        return
+    (workdir / "moments.json").write_text(json.dumps(kept, ensure_ascii=False))
+    store.put(f"work/{vid}/moments.json", workdir / "moments.json")
+    if meta.get("language", "en") != "en":
+        (workdir / "english.json").write_text(json.dumps(writing.translate(clipper.untranslated(workdir)),
+                                                         ensure_ascii=False))
+        store.put(f"work/{vid}/english.json", workdir / "english.json")
+    for m in kept:
+        db.execute('insert into clips (page, video_id, kind, start, "end", moment, status, created_at) '
+                   "values (?, ?, 'clip', ?, ?, ?, 'planned', ?)",
+                   (page.handle, vid, m["start"], m["end"], json.dumps(m, ensure_ascii=False), _now()))
+    _set(db, video_row, "picked")
+
+
+# --- make clips ---
+
+def make_clips(db, cfg, video_row) -> None:
+    page, vid = cfg.pages[video_row["page"]], video_row["video_id"]
+    src = cfg.sources.get(video_row["source_id"] or "")
+    workdir = _pull(vid)
+    os.environ["MUSUBI_CLIPS_OFFLINE"] = "1"
+    meta = json.loads((workdir / "meta.json").read_text())
+    words = clipper.all_words(json.loads((workdir / "transcript.json").read_text()))
+    credit = f"🎙️ {video_row['title'] or meta['title']}" + (f" via @{src.instagram}" if src and src.instagram else "")
+    previous = [r[0] for r in db.execute("select caption from clips where page = ? and caption is not null "
+                                         "order by id desc limit 50", (page.handle,))]
+    for clip in db.execute("select * from clips where video_id = ? and status = 'planned'", (vid,)).fetchall():
+        try:
+            m = json.loads(clip["moment"])
+            text = " ".join(w["word"] for w in words if m["start"] <= w["start"] <= m["end"])
+            layer = writing.write_layer(page, writing.Moment(**m), text)
+            intro_mp3, outro_mp3 = workdir / f"clip-{clip['id']}-intro.mp3", workdir / f"clip-{clip['id']}-outro.mp3"
+            _, intro_s = voice.speak(layer.intro, page.voice, intro_mp3)
+            _, outro_s = voice.speak(layer.takeaway, page.voice, outro_mp3)
+            if intro_s > 7 or outro_s > 5:
+                raise ValueError("layer too long")
+            out = workdir / "out" / f"{clip['id']}.mp4"
+            clipper.render_one(workdir, {**m, "cards": [{**c.model_dump(), "hold": 4} for c in layer.cards]}, out,
+                               theme=page.theme, intro={"audio": intro_mp3, "seconds": intro_s},
+                               outro={"audio": outro_mp3, "seconds": outro_s, "text": layer.takeaway}, music=None)
+            key = f"clips/{clip['id']}.mp4"
+            store.put(key, out)
+            caption = writing.write_caption(page, f"{m['title']}. {m['reason']}", [credit], previous)
+            previous.append(caption)
+            db.execute("update clips set layer = ?, credits = ?, file_key = ?, caption = ?, status = 'draft' where id = ?",
+                       (layer.model_dump_json(), json.dumps([credit], ensure_ascii=False), key, caption, clip["id"]))
+        except Exception as e:
+            db.execute("update clips set status = 'failed', reason = ? where id = ?", (str(e), clip["id"]))
+        db.commit()
+    _set(db, video_row, "cut")
+
+
+def step(db, cfg) -> None:
+    write_jobs(db, cfg)
+    take_inbox(db, cfg)
+    advance(db, cfg)
+    for status, work in (("prepared", pick), ("fetched", make_clips)):
+        row = db.execute("select * from source_videos where status = ? order by id limit 1", (status,)).fetchone()
+        if row:
+            try:
+                work(db, cfg, row)
+            except Exception as e:
+                _set(db, row, "failed", str(e))
