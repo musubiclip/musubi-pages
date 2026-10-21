@@ -1,0 +1,244 @@
+import io
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from engine import clipper
+from pages import llm, script_pipeline, store, voice, writing
+from pages.script_pipeline import Shot
+from pages.writing import Beat, Script
+
+
+def w(word, start, end):
+    return {"word": word, "start": start, "end": end}
+
+
+def make_script(n=6):
+    return Script(idea="why cats purr", title="Why cats purr", hook_text="Cats purr for a reason",
+                  beats=[Beat(line=f"line {i} has five words", shot_query=f"cat {i}") for i in range(n)],
+                  claims=["Cats purr at 25 to 150 Hz"], flags=[])
+
+
+def test_script_prompt_lists_used_ideas_and_validates_beats(cfg, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "ask", lambda p, s: (seen.setdefault("p", p), make_script(4))[1])
+    with pytest.raises(ValueError, match="5 to 7 beats"):
+        writing.write_script(cfg.pages["billikalesh"], ["why cats knead"])
+    assert "why cats knead" in seen["p"]
+
+
+def vid(i, seconds):
+    return i, seconds
+
+
+def fake_http_json(monkeypatch, pexels, pixabay):
+    monkeypatch.setenv("PEXELS_KEY", "pk")
+    monkeypatch.setenv("PIXABAY_KEY", "xk")
+    seen = []
+
+    def urlopen(req, timeout=None):
+        seen.append(req)
+        if "pexels.com" in req.full_url:
+            assert req.get_header("Authorization") == "pk"
+            body = {"videos": [{"id": i, "duration": s, "url": f"https://www.pexels.com/video/{i}/",
+                                "user": {"name": f"P{i}"},
+                                "video_files": [{"height": 720, "link": f"https://p/{i}/720.mp4"},
+                                                {"height": 1920, "link": f"https://p/{i}/1920.mp4"},
+                                                {"height": 1280, "link": f"https://p/{i}/1280.mp4"}]}
+                               for i, s in pexels]}
+        else:
+            assert "key=xk" in req.full_url and "safesearch=true" in req.full_url
+            body = {"hits": [{"id": i, "duration": s, "pageURL": f"https://pixabay.com/videos/{i}/", "user": f"X{i}",
+                              "videos": {"large": {"url": "", "height": 0},
+                                         "medium": {"url": f"https://x/{i}/m.mp4", "height": 720}}}
+                             for i, s in pixabay]}
+        return io.BytesIO(json.dumps(body).encode())
+
+    monkeypatch.setattr(script_pipeline.urllib.request, "urlopen", urlopen)
+    return seen
+
+
+def test_footage_prefers_pexels_skips_used_and_short(monkeypatch):
+    fake_http_json(monkeypatch, pexels=[vid(1, 3), vid(2, 9), vid(3, 9)], pixabay=[])
+    shot = script_pipeline.search_footage("cat stretching", 6.0, used={"pexels:2"})
+    assert (shot.provider, shot.id, shot.licence) == ("pexels", "3", "Pexels License")
+    assert shot.download_url == "https://p/3/1280.mp4" and shot.author == "P3"
+
+
+def test_footage_falls_back_to_pixabay_then_none(monkeypatch):
+    fake_http_json(monkeypatch, pexels=[vid(1, 3)], pixabay=[vid(7, 10)])
+    shot = script_pipeline.search_footage("dog", 6.0, used=set())
+    assert (shot.provider, shot.id, shot.download_url) == ("pixabay", "7", "https://x/7/m.mp4")
+    assert shot.licence == "Pixabay Content License"
+    assert script_pipeline.search_footage("dog", 6.0, used={"pixabay:7"}) is None
+
+
+def test_missing_key_skips_that_provider(monkeypatch):
+    seen = fake_http_json(monkeypatch, pexels=[vid(1, 9)], pixabay=[vid(7, 10)])
+    monkeypatch.delenv("PEXELS_KEY")
+    assert script_pipeline.search_footage("dog", 6.0, used=set()).provider == "pixabay"
+    assert all("pexels" not in r.full_url for r in seen)
+
+
+def test_beat_spans_cover_the_voiceover_in_order():
+    words = [w("Ever", 0, .3), w("wondered?", .3, .9), w("Cats", 1.0, 1.3), w("purr.", 1.3, 2.0)]
+    beats = [Beat(line="Ever wondered?", shot_query="a"), Beat(line="Cats purr.", shot_query="b")]
+    assert script_pipeline.beat_spans(words, beats) == [(0.0, 1.0), (1.0, 2.0)]
+
+
+def patch_reel(monkeypatch, seconds=30.0, shots=True):
+    seen = {}
+    script = make_script()
+    monkeypatch.setattr(writing, "write_script", lambda page, used: script)
+    step = seconds / 30
+
+    def speak(text, voice_id, out):
+        out.write_bytes(b"mp3")
+        return [w(x, round(i * step, 3), round((i + 1) * step, 3)) for i, x in enumerate(text.split())], seconds
+
+    monkeypatch.setattr(voice, "speak", speak)
+    n = iter(range(100))
+    monkeypatch.setattr(script_pipeline, "search_footage", lambda q, s, used: Shot(
+        "pexels", str(next(n)), "https://p/x.mp4", "https://pexels.com/v", "Ann", "Pexels License", 9) if shots else None)
+    monkeypatch.setattr(script_pipeline, "_download", lambda url, path: path.write_bytes(b"v") and path)
+
+    def montage(paths, spans, mp3, out):
+        seen["montage"] = (paths, spans)
+        out.write_bytes(b"mp4")
+        return out
+
+    monkeypatch.setattr(script_pipeline, "montage", montage)
+
+    def render_one(workdir, moment, out, **kw):
+        seen["render"] = (workdir, moment, kw)
+        Path(out).write_bytes(b"reel")
+        return out
+
+    monkeypatch.setattr(clipper, "render_one", render_one)
+    monkeypatch.setattr(writing, "write_caption", lambda page, about, credits, prev: "Cats.\n\n" + "\n".join(credits))
+    return seen
+
+
+def clip(d, i):
+    return d.execute("select * from clips where id = ?", (i,)).fetchone()
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setattr(script_pipeline.config, "HOME", tmp_path / "home")
+    return tmp_path / "home"
+
+
+def test_make_reel_stores_claims_credits_and_a_draft(d, cfg, local_store, home, monkeypatch):
+    seen = patch_reel(monkeypatch)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    row = clip(d, i)
+    assert (row["status"], row["kind"]) == ("draft", "script"), row["reason"]
+    assert len(json.loads(row["credits"])) == 6
+    assert json.loads(row["script"])["claims"] == ["Cats purr at 25 to 150 Hz"]
+    assert "Footage: Ann / pexels" in row["caption"]
+    assert store.exists(row["file_key"])
+    workdir, moment, kw = seen["render"]
+    assert workdir == home / "work" / f"script-{i}"
+    assert (moment["start"], moment["end"], moment["hook_text"]) == (0.0, 30.0, "Cats purr for a reason")
+    meta = json.loads((workdir / "meta.json").read_text())
+    assert meta["transcript_source"] == "polly" and meta["duration"] == 31.0
+    assert json.loads((workdir / "transcript.json").read_text())["source"] == "polly"
+    assert kw["music"] is None and kw["theme"] == cfg.pages["billikalesh"].theme
+    assert len(seen["montage"][1]) == 6
+
+
+def test_script_too_long_fails_the_reel(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch, seconds=55.0)
+    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"]))
+    assert row["status"] == "failed" and "script length" in row["reason"]
+
+
+def test_reel_waits_for_cc_footage_then_finishes(d, cfg, local_store, home, tmp_path, monkeypatch):
+    patch_reel(monkeypatch, shots=False)
+    script_pipeline.step(d, cfg)
+    row = d.execute("select * from clips where page = 'billikalesh'").fetchone()
+    assert row["status"] == "waiting_footage"
+    jobs = store.get_json("jobs/cc.json")
+    assert [j["key"] for j in jobs] == [f"{row['id']}-{b}" for b in range(6)]
+    assert jobs[0]["query"] == "cat 0" and jobs[0]["seconds"] > 0
+
+    src = tmp_path / "cc.mp4"
+    src.write_bytes(b"v")
+    for j in jobs:
+        store.put(f"footage/cc/{j['key']}.mp4", src)
+        store.put_json(f"footage/cc/{j['key']}.json", {"page_url": "https://youtu.be/a", "author": "Bo", "licence": "CC BY"})
+    script_pipeline.step(d, cfg)
+    row = clip(d, row["id"])
+    assert row["status"] == "draft"
+    assert "Footage: Bo (CC BY) https://youtu.be/a" in row["caption"]
+    assert not {j["key"] for j in jobs} & {j["key"] for j in store.get_json("jobs/cc.json")}
+
+
+def test_cc_none_fails_the_waiting_reel(d, cfg, local_store, home, tmp_path, monkeypatch):
+    patch_reel(monkeypatch, shots=False)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    src = tmp_path / "n"
+    src.write_bytes(b"")
+    store.put(f"footage/cc/{i}-0.none", src)
+    script_pipeline.step(d, cfg)
+    row = clip(d, i)
+    assert row["status"] == "failed" and row["reason"] == "no footage for cat 0"
+
+
+def fake_ytdlp(monkeypatch, entries):
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        if "-J" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"entries": entries}), "")
+        Path(cmd[cmd.index("-o") + 1]).write_bytes(b"v")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(script_pipeline.subprocess, "run", run)
+    return calls
+
+
+def test_cc_search_refuses_a_video_without_a_cc_licence(local_store, home, monkeypatch):
+    calls = fake_ytdlp(monkeypatch, [{"id": "a", "duration": 60, "license": "Standard YouTube License",
+                                      "webpage_url": "https://youtu.be/a", "uploader": "A"}])
+    assert script_pipeline.fetch_cc({"key": "5-0", "query": "cat", "seconds": 6.0}) is False
+    assert store.exists("footage/cc/5-0.none") and not store.exists("footage/cc/5-0.mp4")
+    assert len(calls) == 1
+
+
+def test_cc_search_downloads_the_middle_of_a_long_enough_cc_video(local_store, home, monkeypatch):
+    calls = fake_ytdlp(monkeypatch, [
+        {"id": "s", "duration": 8, "license": "Creative Commons Attribution license (reuse allowed)"},
+        {"id": "b", "duration": 60, "license": "Creative Commons Attribution license (reuse allowed)",
+         "webpage_url": "https://youtu.be/b", "uploader": "Bee"}])
+    assert script_pipeline.fetch_cc({"key": "5-1", "query": "cat", "seconds": 6.0}) is True
+    assert "EgIwAQ%253D%253D" in calls[0][-1]
+    assert calls[1][calls[1].index("--download-sections") + 1] == "*27.0-33.0"
+    assert store.get_json("footage/cc/5-1.json") == {
+        "page_url": "https://youtu.be/b", "author": "Bee", "licence": "Creative Commons Attribution license (reuse allowed)"}
+    assert store.exists("footage/cc/5-1.mp4")
+
+
+@pytest.mark.slow
+def test_montage_is_vertical_and_as_long_as_the_voice(tmp_path):
+    assert shutil.which("ffmpeg")
+    shots = []
+    for i, size in enumerate(["640x360", "360x640"]):
+        p = tmp_path / f"s{i}.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=30:duration=3",
+                        str(p)], check=True)
+        shots.append(p)
+    mp3 = tmp_path / "v.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", str(mp3)], check=True)
+    out = script_pipeline.montage(shots, [(0.0, 1.5), (1.5, 3.0)], mp3, tmp_path / "m.mp4")
+    probe = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                                       "stream=codec_type,width,height:format=duration", "-of", "json", str(out)],
+                                      capture_output=True, text=True, check=True).stdout)
+    v = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    assert (v["width"], v["height"]) == (1080, 1920)
+    assert abs(float(probe["format"]["duration"]) - 4.0) < 0.2
