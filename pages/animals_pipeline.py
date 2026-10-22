@@ -3,6 +3,7 @@
 No speech, so no transcript: Claude looks at frames. The reel gets a hook, 1 to 2 context cards and music.
 """
 import json
+import re
 import os
 import random
 import subprocess
@@ -78,7 +79,7 @@ def fetch_animals(job: dict) -> bool:
         return False
     skip = set(job.get("skip", []))
     for e in _cc_search(job["query"], VIDEO_MIN - 4):  # _cc_search keeps duration >= seconds + 4
-        if e["id"] in skip or e["duration"] > VIDEO_MAX:
+        if e["id"] in skip or e["duration"] > VIDEO_MAX or REUPLOAD.search(e.get("title") or ""):
             continue
         workdir = clipper.work_root() / e["id"]
         workdir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +122,10 @@ class Moments(BaseModel):
     moments: list[Moment]
 
 
+# compilation channels re-upload other people's clips, so their Creative Commons licence often isn't theirs to give
+REUPLOAD = re.compile(r"compilation|try not to laugh|funniest|funny moments|best of|tiktok|reels|part \d", re.I)
+
+
 PICK_RULES = """\
 You choose clips for @{handle}, an Instagram page of animal videos ({topics}).
 The images are contact sheets of one video, "{title}" ({duration:.0f} seconds long): a frame every {every:g} seconds,
@@ -131,6 +136,8 @@ Pick up to {want} moments for short vertical reels with no voiceover and no capt
 - Start just before the action begins and end right after the payoff. Use a scene cut as start or end where one is near.
 - Length is {lo} to {hi} seconds, inside 0 to {duration:.0f}. Moments never overlap.
 - Skip intros, title cards, subscribe screens, someone talking to camera, and frames covered in text.
+- Skip any moment showing a watermark, a channel or app logo, a TikTok or Instagram handle, or another creator's
+  name anywhere in the frame. Such footage belongs to someone else. If every moment has one, return no moments.
 
 For each moment write:
 - title: a short working title.

@@ -19,7 +19,7 @@ daily_target = 1
 theme = {hot = "#ff8a3d", sun = "#ffe066", font = "Poppins"}
 music = []
 topics = "cats, dogs, wild animals and nature: one surprising fact or behaviour explained per reel"
-queries = ["funny cat", "cat compilation", "dog reacts", "funny dog", "wildlife moment", "animal fails"]
+queries = ["my cat", "cat playing", "kitten playing", "my dog", "dog playing", "puppy", "wildlife"]
 
 # Set from what the API actually does (verify-ig).
 [api]

@@ -42,11 +42,11 @@ def video(d, vid="cat1"):
 
 def test_jobs_rotate_queries_and_stop_while_a_video_is_in_progress(d, cfg, local_store):
     ap.write_jobs(d, cfg)
-    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "funny cat", "skip": []}]
-    store.put_json("inbox/animals/none.json", {"none": True, "page": "billikalesh", "query": "funny cat"})
+    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "my cat", "skip": []}]
+    store.put_json("inbox/animals/none.json", {"none": True, "page": "billikalesh", "query": "my cat"})
     ap.take_inbox(d, cfg)
     ap.write_jobs(d, cfg)
-    assert store.get_json("jobs/animals.json")[0]["query"] == "cat compilation"
+    assert store.get_json("jobs/animals.json")[0]["query"] == "cat playing"
     store.put_json("inbox/animals/cat1.json", {"page": "billikalesh", "video_id": "cat1", "url": INFO["webpage_url"],
                                                "title": "Cat vs cucumber", "channel": "Bee", "license": INFO["license"]})
     ap.take_inbox(d, cfg)
@@ -235,3 +235,14 @@ def test_cli_work_runs_the_animals_step(monkeypatch, tmp_path):
         monkeypatch.setattr(mod, "step", lambda db, cfg, m=mod: ran.append(m.__name__))
     cli.main(["work"])
     assert ran == ["pages.clips_pipeline", "pages.script_pipeline", "pages.animals_pipeline"]
+
+
+def test_reupload_titles_are_skipped():
+    for t in ["TRY NOT TO LAUGH at These Funny Cats", "Cat Compilation 2026", "Funny Moments part 3", "Best of TikTok cats"]:
+        assert ap.REUPLOAD.search(t), t
+    for t in ["My cat Luna meets a cucumber", "Kitten plays with a ball of yarn"]:
+        assert not ap.REUPLOAD.search(t), t
+
+
+def test_pick_prompt_skips_watermarks():
+    assert "watermark" in ap.PICK_RULES and "another creator" in ap.PICK_RULES
