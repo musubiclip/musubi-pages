@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Copy to ~/Library/LaunchAgents/, fill in the placeholders, then: launchctl load ~/Library/LaunchAgents/com.musubi.pages-fetcher.plist -->
+<!-- Copy to ~/Library/LaunchAgents/, fill in the placeholders (USER, REPO_PATH, BUCKET_NAME; UV_PATH is `which uv`), then: launchctl load ~/Library/LaunchAgents/com.musubi.pages-fetcher.plist -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.musubi.pages-fetcher</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/zsh</string>
-        <string>-lc</string>
-        <string>uv run pages fetch</string>
+        <string>UV_PATH</string>
+        <string>run</string>
+        <string>pages</string>
+        <string>fetch</string>
     </array>
     <key>WorkingDirectory</key>
     <string>REPO_PATH</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/Users/USER/.local/bin:/usr/bin:/bin</string>
         <key>PAGES_STORE</key>
         <string>s3://BUCKET_NAME</string>
         <key>AWS_PROFILE</key>

@@ -50,3 +50,25 @@ def test_refresh_failure_is_recorded(d, fake_ig, monkeypatch):
     monkeypatch.setattr(ig, "refresh", boom)
     accounts.refresh_tokens(d, NOW)
     assert d.execute("select count(*) from events where kind='token_refresh_failed'").fetchone()[0] == 1
+
+
+def test_a_dead_token_on_refresh_asks_for_reconnect(d, fake_ig, monkeypatch):
+    _connect(d, 8)
+
+    def dead(t):
+        raise ig.IGError(190, None, "Error validating access token")
+    monkeypatch.setattr(ig, "refresh", dead)
+    accounts.refresh_tokens(d, NOW)
+    row = d.execute("select token_expires_at from pages where handle='billikalesh'").fetchone()
+    assert row[0] == NOW.isoformat()
+    assert d.execute("select count(*) from events where kind='token_invalid'").fetchone()[0] == 1
+
+
+def test_connect_works_before_init_and_refuses_unknown_pages(d, monkeypatch):
+    monkeypatch.setattr(ig, "me", lambda t: {"user_id": "1789", "username": "billikalesh"})
+    d.execute("delete from pages")
+    d.commit()
+    accounts.connect(d, "billikalesh", "tok", now=NOW)
+    assert d.execute("select token from pages where handle='billikalesh'").fetchone()[0] == "tok"
+    with pytest.raises(ValueError, match="not in pages.toml"):
+        accounts.connect(d, "musubi_clip", "tok", now=NOW)

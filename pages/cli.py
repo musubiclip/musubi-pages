@@ -1,12 +1,26 @@
 import argparse
 import getpass
 import json
+import os
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pages import config, db as dbm
 
 
+def load_env(path: Path = Path.home() / ".config" / "musubi-pages.env") -> None:
+    """KEY=VALUE lines (stock footage keys and the like) into the environment; real env vars win."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 def main(argv=None):
+    load_env()
     ap = argparse.ArgumentParser(prog="pages")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
@@ -37,7 +51,7 @@ def main(argv=None):
     elif args.cmd == "connect":
         from pages.accounts import connect
         token = getpass.getpass(f"Token for @{args.handle}: ")
-        connect(db, args.handle, token, now=datetime.now(UTC))
+        connect(db, args.handle, token, now=datetime.now(UTC), cfg=cfg)
     elif args.cmd == "verify-ig":
         from pages.verify import run
         print(json.dumps(run(db, args.handle), indent=2, default=str))
