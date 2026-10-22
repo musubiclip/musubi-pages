@@ -105,7 +105,7 @@ def _used(db, page: str) -> set[str]:
     used = set()
     for credits, script in db.execute("select credits, script from clips where page = ?", (page,)):
         shots = json.loads(credits or "[]") + json.loads(script or "{}").get("shots", [])
-        used |= {f"{c['provider']}:{c['id']}" for c in shots}
+        used |= {f"{c['provider']}:{c['id']}" for c in shots if isinstance(c, dict)}  # clip reels credit strings
     return used
 
 
@@ -115,6 +115,13 @@ def _set(db, clip_id: int, **cols) -> None:
 
 
 def make_reel(db, cfg, page) -> int:
+    if not (os.environ.get("PEXELS_KEY") or os.environ.get("PIXABAY_KEY")):
+        # without them every beat becomes a CC job; fail before spending a Claude call
+        clip_id = db.execute("insert into clips (page, kind, status, reason, created_at, attempts) "
+                             "values (?, 'script', 'failed', 'no stock API keys', ?, 0)",
+                             (page.handle, datetime.now(UTC).isoformat())).lastrowid
+        db.commit()
+        return clip_id
     clip_id = db.execute("insert into clips (page, kind, status, created_at, attempts) values (?, 'script', 'planned', ?, 0)",
                          (page.handle, datetime.now(UTC).isoformat())).lastrowid
     db.commit()
@@ -222,7 +229,11 @@ def step(db, cfg) -> None:
                 _set(db, clip_id, status="failed", reason=str(e))
         # one waiting reel per page, so a sleeping Mac doesn't pile up Claude and Polly calls
         waiting = db.execute("select 1 from clips where page = ? and status = 'waiting_footage'", (page.handle,)).fetchone()
-        if not waiting and queue_size(db, page.handle) < QUEUE_LOW:
+        # a reel that failed in the last hour (missing keys, Polly down) waits, or every run spends an Opus call
+        recent = db.execute("select 1 from clips where id = (select max(id) from clips where page = ? and "
+                            "kind = 'script') and status = 'failed' and created_at > ?",
+                            (page.handle, (datetime.now(UTC) - timedelta(hours=1)).isoformat())).fetchone()
+        if not waiting and not recent and queue_size(db, page.handle) < QUEUE_LOW:
             make_reel(db, cfg, page)
     store.put_json("jobs/cc.json", _cc_jobs(db))
 

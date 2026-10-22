@@ -18,7 +18,7 @@ create table if not exists clips (
     id integer primary key, page text, video_id text, kind text, start real, end real, moment text,
     layer text, script text, credits text, file_key text, caption text, status text, reason text,
     scheduled_at text, container_id text, media_id text, permalink text, trial integer,
-    attempts integer default 0, created_at text, published_at text
+    attempts integer default 0, created_at text, published_at text, claimed_at text
 );
 create table if not exists insights (
     clip_id integer, due text, fetched_at text, views integer, reach integer, likes integer,
@@ -42,6 +42,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("pragma journal_mode=wal")
     db.executescript(SCHEMA)
+    if "claimed_at" not in {r["name"] for r in db.execute("pragma table_info(clips)")}:  # DBs made before it
+        db.execute("alter table clips add column claimed_at text")
+        db.commit()
     return db
 
 

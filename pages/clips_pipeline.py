@@ -29,7 +29,8 @@ def write_jobs(db, cfg) -> None:
     videos = lambda status: db.execute("select * from source_videos where status = ? order by id", (status,)).fetchall()
     store.put_json("jobs/fetch.json", {
         "watch": [{"source": s.id, "url": s.url} for s in _channels(cfg) if queue_size(db, s.page) < QUEUE_LOW],
-        "prepare": [{"video_id": v["video_id"], "url": v["url"]} for v in videos("new")],
+        "prepare": [{"video_id": v["video_id"], "url": v["url"]} for v in videos("new")
+                    if queue_size(db, v["page"]) < QUEUE_LOW],
         "sections": [{"video_id": v["video_id"], "url": v["url"], "count": cfg.pages[v["page"]].clips_per_video}
                      for v in videos("picked")],
         "cc_search": [],
@@ -56,6 +57,8 @@ def video_id(url: str) -> str | None:
 def add_link(db, cfg, url: str, page: str, note: str) -> int:
     if page not in cfg.pages:
         raise ValueError(f"unknown page {page}")
+    if cfg.pages[page].pipeline != "clips":
+        raise ValueError("links only go to clip pages")
     vid = video_id(url)
     if not vid:
         raise ValueError(f"not a YouTube video link: {url}")
@@ -196,7 +199,9 @@ def step(db, cfg) -> None:
     take_inbox(db, cfg)
     advance(db, cfg)
     for status, work in (("prepared", pick), ("fetched", make_clips)):
-        row = db.execute("select * from source_videos where status = ? order by id limit 1", (status,)).fetchone()
+        rows = db.execute("select * from source_videos where status = ? order by id", (status,)).fetchall()
+        # a full queue picks nothing new: a first watch would otherwise pick every upload of every source
+        row = next((r for r in rows if work is not pick or queue_size(db, r["page"]) < QUEUE_LOW), None)
         if row:
             try:
                 work(db, cfg, row)

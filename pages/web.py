@@ -3,6 +3,7 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import jwt
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -49,6 +50,11 @@ def _allowed(request: Request) -> bool:
 
 @app.middleware("http")
 async def access(request: Request, call_next):
+    if os.environ.get("PAGES_STORE", "").startswith("s3://") and not os.environ.get("CF_ACCESS_AUD"):
+        return PlainTextResponse("Access not configured", status_code=503)  # never open on a deployed store
+    origin = request.headers.get("origin")
+    if request.method == "POST" and origin and urlparse(origin).netloc != request.headers.get("host"):
+        return PlainTextResponse("forbidden", status_code=403)  # another site posting a form here
     if not _allowed(request):
         return PlainTextResponse("forbidden", status_code=403)
     return await call_next(request)
@@ -86,11 +92,30 @@ def _draft(db, cfg, c):
             "note": sv["note"] if sv else None}
 
 
+PROBLEM_EVENTS = ("publish_error", "tick_failed", "token_refresh_failed", "token_invalid", "bad_url",
+                  "insights_failed", "copyright_match", "paused", "permalink_failed", "source_withdrawn")
+
+
+def _problems(db, now):
+    since = (now - timedelta(days=7)).isoformat()
+    clips = db.execute("select page, kind, reason from clips where status = 'failed' and created_at >= ? "
+                       "order by id desc limit 50", (since,)).fetchall()
+    videos = db.execute("select coalesce(title, url, video_id) as name, status, note from source_videos "
+                        "where status in ('skipped', 'failed') and created_at >= ? order by id desc limit 50",
+                        (since,)).fetchall()
+    events = db.execute(f"select page, kind, detail, count(*) as n, max(at) as last from events "
+                        f"where kind in ({', '.join('?' * len(PROBLEM_EVENTS))}) and at >= ? "
+                        f"group by kind, detail order by last desc limit 50", (*PROBLEM_EVENTS, since)).fetchall()
+    return {"clips": clips, "videos": videos, "events": events}
+
+
 @app.get("/")
 async def review(request: Request, db=Depends(get_db), cfg=Depends(get_cfg)):
     now = datetime.now(UTC)
-    return templates.TemplateResponse(request, "review.html",
-                                      {"pages": [_page(db, cfg, h, now) for h in cfg.pages]})
+    dbm.add_pages(db, cfg)  # works before `pages init`
+    return templates.TemplateResponse(request, "review.html", {
+        "pages": [_page(db, cfg, h, now) for h in cfg.pages], "problems": _problems(db, now),
+        "link_pages": [h for h, p in cfg.pages.items() if p.pipeline == "clips"]})
 
 
 def _home():
@@ -101,6 +126,19 @@ def _home():
 async def approve(cid: int, caption: str = Form(""), db=Depends(get_db)):
     if len(caption) > 2200:
         raise HTTPException(400, "caption is over 2200 characters")
+    if not caption.strip():
+        raise HTTPException(400, "caption is empty")
+    if caption.count("#") > 5:
+        raise HTTPException(400, "more than 5 hashtags")
+    row = db.execute("select kind, credits, caption from clips where id = ?", (cid,)).fetchone()
+    if row:
+        if row["kind"] == "script":
+            lines = [c["credit"] for c in _json(row["credits"], []) if isinstance(c, dict)]
+        else:
+            lines = [x.strip() for x in (row["caption"] or "").splitlines() if x.strip().startswith("🎙️")]
+        missing = [x for x in lines if x not in caption]
+        if missing:
+            raise HTTPException(400, f"caption drops the credit: {missing[0]}")
     cur = db.execute("update clips set status = 'approved', caption = ? where id = ? and status = 'draft'",
                      (caption, cid))
     db.commit()
@@ -159,6 +197,8 @@ async def files(key: str):
         path = store._local(store._backend()[1], key)
     except ValueError:
         raise HTTPException(404)
-    if not path.is_file():
+    # only clips: the store also holds DB backups (with tokens). Checked on the resolved path, so
+    # encoded ../ in the key cannot climb out of clips/.
+    if not path.is_relative_to(store._backend()[1].resolve() / "clips") or not path.is_file():
         raise HTTPException(404)
     return FileResponse(path)

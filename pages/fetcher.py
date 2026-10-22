@@ -33,13 +33,12 @@ def prepare(job) -> bool:
     workdir = clipper.work_root() / vid
     try:
         clipper.prepare(job["url"])
-    except (SystemExit, Exception) as e:  # the engine exits when YouTube has no captions
+    except SystemExit as e:  # the engine exits when YouTube has no captions: skip the video for good
         workdir.mkdir(parents=True, exist_ok=True)
-        (workdir / "error.txt").write_text(str(e.code if isinstance(e, SystemExit) else e))
+        (workdir / "error.txt").write_text(str(e.code))
         store.put(base + "error.txt", workdir / "error.txt")
-        if isinstance(e, SystemExit):
-            return True
-        raise
+        return True
+    # anything else (429s, bot checks) raises: run_jobs counts it failed and the job is retried next run
     for f in [*(workdir / n for n in PREPARED), *sorted(workdir.glob("captions.*.json3"))]:
         store.put(base + f.name, f)
     return True
@@ -75,7 +74,7 @@ def run_jobs() -> dict:
             try:
                 if fn(job) is not False:
                     done[kind] += 1
-            except Exception as e:
+            except (SystemExit, Exception) as e:  # the engine sys.exits on some failures
                 print(f"{kind} failed for {job}: {e}", file=sys.stderr, flush=True)
                 done["failed"] += 1
     return done
