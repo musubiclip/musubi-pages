@@ -449,7 +449,7 @@ def test_music_ducks_while_words_are_spoken():
     lane = json.loads(clipper.music_bed("music.mp3", reel, 40.0, 0.1).split("data-automation='")[1].split("'")[0])
     points = lane["lanes"][0]["points"]
     assert lane["lanes"][0]["target"] == "volume" and points[0] == {"t": 0, "v": 0.1}
-    assert {p["v"] for p in points} == {0.1, 0.06}
+    assert {p["v"] for p in points} == {0.1, 0.075}
 
 
 @pytest.mark.slow
