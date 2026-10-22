@@ -43,7 +43,7 @@ def _collaborators(db, cfg, clip) -> list[str]:
 
 
 def _permitted(db, cfg, clip) -> bool:
-    if clip["kind"] != "clip" or clip["video_id"] is None:
+    if clip["kind"] == "script" or clip["video_id"] is None:  # montages come from source videos too
         return True
     row = db.execute("select source_id, note from source_videos where video_id = ?", (clip["video_id"],)).fetchone()
     return bool(row and (row["source_id"] in cfg.sources or row["note"]))

@@ -82,7 +82,7 @@ function DraftCard({ d, act }: { d: Draft; act: Act }) {
         <div className="flex min-w-0 flex-col gap-6">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="plain">{d.kind === "script" ? "Script reel" : "Clip"}</Badge>
+              <Badge variant="plain">{({ script: "Script reel", montage: "Montage", rapidfire: "Rapid fire" } as Record<string, string>)[d.kind] ?? "Clip"}</Badge>
               <span className="tnum">#{d.id}</span>
               {d.created_at && <span>· made {when(d.created_at)}</span>}
             </div>

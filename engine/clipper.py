@@ -848,8 +848,8 @@ def sfx_tags(reel, total):
     return "".join(tags)
 
 
-def music_bed(src, reel, total, volume):
-    """The music bed at a low base volume, ducked further while words are spoken (a HyperFrames volume lane)."""
+def music_bed(src, reel, total, volume, low=None):
+    """The music bed at a low base volume, ducked to low (default DUCK of it) while words are spoken (a HyperFrames volume lane)."""
     voice = [(0.0, reel["intro"]["seconds"])] if reel.get("intro") else []
     voice += [(reel["outro"]["at"], reel["outro"]["at"] + reel["outro"]["seconds"])] if reel.get("outro") else []
     spans = []
@@ -858,7 +858,7 @@ def music_bed(src, reel, total, volume):
             spans[-1][1] = max(spans[-1][1], e)
         else:
             spans.append([s, e])
-    low, points = round(volume * DUCK, 3), [{"t": 0, "v": volume}]
+    low, points = round(volume * DUCK if low is None else low, 3), [{"t": 0, "v": volume}]
     for s, e in spans[:120]:  # ponytail: a lane holds 512 points; past 120 spans the bed stays at its last level
         points += [{"t": round(max(0.0, s - 0.15), 3), "v": volume}, {"t": round(s, 3), "v": low},
                    {"t": round(e, 3), "v": low}, {"t": round(e + 0.25, 3), "v": volume}]
@@ -966,7 +966,7 @@ def reel_page(reel, design, total, duration, music_tag, theme, watermark=False, 
     data = json.dumps(reel, ensure_ascii=False)
     if sfx:
         music_tag += sfx_tags(reel, total)
-    html = REEL_TEMPLATES[design].read_text(encoding="utf-8")
+    html = Path(REEL_TEMPLATES.get(design, design)).read_text(encoding="utf-8")  # a design name or a template path
     html = html.replace("<!--__MUSIC__-->", music_tag).replace("__TOTAL__", f"{total}").replace("__DURATION__", f"{duration}").replace("<!--__DATA__-->", f"<script>window.__REEL_DATA__ = {data};</script>")
     html = html.replace("<!--__WATERMARK__-->", '<img id="wm" src="watermark.png" alt="" />' if watermark else "")
     headline = reel.get("hook_style") == "headline"

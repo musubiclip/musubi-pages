@@ -9,6 +9,9 @@ HOME = Path(os.environ.get("PAGES_HOME", Path.home() / "MusubiPages"))
 os.environ.setdefault("MUSUBI_CLIPS_DIR", str(HOME / "work"))
 
 
+FORMATS = {"clip", "montage", "rapidfire"}
+
+
 @dataclass
 class Page:
     handle: str
@@ -27,6 +30,8 @@ class Page:
     hook_style: str = "spotlight"  # "headline": a news headline with the brand tag opens every reel and is its cover
     brand_tag: str = ""  # small caps over the headline, such as "TECH BAWAAL"
     avatar: str = ""  # profile picture (repo-relative path): a round badge on every reel cover
+    formats: dict = field(default_factory=dict)  # weights of reel kinds, e.g. {clip = 2, montage = 1, rapidfire = 1}
+    montage_music: list[str] = field(default_factory=list)  # bassy beds the montages cut to (default: music)
 
 
 @dataclass
@@ -58,6 +63,8 @@ def load(path: Path = ROOT / "pages.toml") -> Config:
             raise ValueError(f"{handle}: window must lie within 0 to 24")
         if page.hook_style not in ("spotlight", "headline"):
             raise ValueError(f"{handle}: hook_style must be spotlight or headline")
+        if set(page.formats) - FORMATS or any(not isinstance(w, int) or w < 0 for w in page.formats.values()):
+            raise ValueError(f"{handle}: formats takes {', '.join(sorted(FORMATS))} with whole number weights")
         if not 1 <= page.daily_target <= 3:
             raise ValueError(f"{handle}: daily_target must be 1 to 3")
         pages[handle] = page

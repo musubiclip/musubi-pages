@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pages import config, store, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
+from pages import config, llm, store, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
 from pages.db import QUEUE_LOW, queue_size
 from engine import clipper
 
@@ -35,10 +35,17 @@ def write_jobs(db, cfg) -> None:
         "watch": [{"source": s.id, "url": s.url} for s in _channels(cfg) if queue_size(db, s.page) < QUEUE_LOW],
         "prepare": [{"video_id": v["video_id"], "url": v["url"]} for v in videos("new")
                     if queue_size(db, v["page"]) < QUEUE_LOW],
-        "sections": [{"video_id": v["video_id"], "url": v["url"], "count": cfg.pages[v["page"]].clips_per_video}
+        "sections": [{"video_id": v["video_id"], "url": v["url"], "count": _section_count(db, cfg, v)}
                      for v in videos("picked")],
         "cc_search": [],
     })
+
+
+def _section_count(db, cfg, video) -> int:
+    """Moments the Mac fetches sections for: a rapid fire reel writes one per group of its lines."""
+    from pages.montage_pipeline import LINES
+    rapid = db.execute("select 1 from clips where video_id = ? and kind = 'rapidfire'", (video["video_id"],)).fetchone()
+    return LINES[1] if rapid else cfg.pages[video["page"]].clips_per_video
 
 
 def take_inbox(db, cfg) -> None:
@@ -163,6 +170,14 @@ def pick(db, cfg, video_row) -> None:
     page, vid = cfg.pages[video_row["page"]], video_row["video_id"]
     workdir = _pull(vid)
     meta = json.loads((workdir / "meta.json").read_text())
+    from pages import montage_pipeline
+    if montage_pipeline.next_format(db, page, ("clip", "rapidfire")) == "rapidfire":
+        try:
+            montage_pipeline.plan_rapidfire(db, page, video_row, workdir)
+            _set(db, video_row, "picked")
+            return
+        except (ValueError, llm.LLMError):
+            pass  # no good set of lines: clip the video instead
     transcript = json.loads((workdir / "transcript.json").read_text())
     music = [s for f in workdir.glob("captions.*.json3") for s in music_spans(f.read_text())]
     found = writing.pick_moments((workdir / "transcript.txt").read_text(), video_row["title"] or meta["title"],
@@ -212,6 +227,11 @@ def make_clips(db, cfg, video_row) -> None:
     previous = [r[0] for r in db.execute("select caption from clips where page = ? and caption is not null "
                                          "order by id desc limit 50", (page.handle,))]
     for clip in db.execute("select * from clips where video_id = ? and status = 'planned'", (vid,)).fetchall():
+        if clip["kind"] == "rapidfire":
+            from pages import montage_pipeline
+            montage_pipeline.make_rapidfire(db, page, clip, workdir, montage_pipeline.rapidfire_credit(
+                workdir, video_row["title"] or meta["title"], src))
+            continue
         try:
             m = json.loads(clip["moment"])
             if clipper.speaker_share(workdir, m) < clipper.MIN_SPEAKER:

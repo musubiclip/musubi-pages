@@ -215,6 +215,11 @@ def keep(moments: list[Moment], duration: float, want: int, hook_style: str = "s
 
 def cut(db, cfg, row) -> None:
     page, vid = cfg.pages[row["page"]], row["video_id"]
+    from pages import montage_pipeline
+    if montage_pipeline.next_format(db, page, ("clip", "montage")) == "montage":
+        montage_pipeline.make_visual(db, cfg, page, [vid])
+        _set(db, row, "cut")
+        return
     workdir = _pull(vid)
     video = workdir / "source.mp4"
     info = json.loads((workdir / "source-audio.info.json").read_text())
