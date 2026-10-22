@@ -409,3 +409,19 @@ def test_ai_label_follows_the_api_setting(d, cfg, fake_ig, monkeypatch):
     cfg.api["ai_label"] = False
     publish.publish_due(d, cfg, now)
     assert fake_ig.created and fake_ig.created[0]["ai_label"] is False
+
+
+def test_a_clip_with_a_cover_sends_its_url(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+    d.execute("update clips set cover_key = ? where id = ?", (f"clips/{c}-cover.jpg", c))
+    d.commit()
+    publish.publish_due(d, cfg, NOW)
+    assert fake_ig.created[0]["cover_url"] == f"https://example.test/clips/{c}-cover.jpg"
+
+
+def test_a_clip_without_a_cover_sends_no_cover_url(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    due(d)
+    publish.publish_due(d, cfg, NOW)
+    assert fake_ig.created[0]["cover_url"] is None and fake_ig.created[0]["thumb_offset_ms"] == 1300

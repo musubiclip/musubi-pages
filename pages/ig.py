@@ -55,9 +55,11 @@ def publishing_limit(user_id: str, token: str) -> tuple[int, int]:
 
 
 def create_reel(user_id: str, token: str, video_url: str, caption: str, *,
-                thumb_offset_ms: int, trial: bool, collaborators: list[str], ai_label: bool) -> str:
+                thumb_offset_ms: int, trial: bool, collaborators: list[str], ai_label: bool, cover_url: str | None = None) -> str:
     params = {"media_type": "REELS", "video_url": video_url, "caption": caption,
               "share_to_feed": "true", "thumb_offset": thumb_offset_ms}
+    if cover_url:  # Instagram uses it over thumb_offset
+        params["cover_url"] = cover_url
     if ai_label:
         params["is_ai_generated"] = "true"
     if trial:

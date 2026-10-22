@@ -287,13 +287,15 @@ def test_cut_stores_the_cover_frame(d, cfg, local_store, fakes, monkeypatch):
 
     def with_cover(workdir, moment, out, **kw):
         real(workdir, moment, out, **kw)
-        out.with_suffix(".jpg").write_bytes(b"jpg")
+        from PIL import Image
+        Image.new("RGB", (108, 192)).save(out.with_suffix(".jpg"))
         return out
     monkeypatch.setattr(clipper, "render_one", with_cover)
     downloaded(d, local_store)
     ap.step(d, cfg)
     row = d.execute("select id, cover_key from clips where status = 'draft'").fetchone()
-    assert row["cover_key"] == f"clips/{row['id']}.jpg" and store.exists(row["cover_key"])
+    assert row["cover_key"] == f"clips/{row['id']}-cover.jpg" and store.exists(row["cover_key"])
+    assert store.exists(f"clips/{row['id']}.jpg")
 
 
 def test_any_page_with_queries_gets_jobs_whatever_its_pipeline(d, local_store):

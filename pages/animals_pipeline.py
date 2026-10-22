@@ -248,7 +248,7 @@ def cut(db, cfg, row) -> None:
                                hook_style=page.hook_style, brand_tag=page.brand_tag)
             key = f"clips/{clip_id}.mp4"
             store.put(key, out)
-            cover = put_cover(clip_id, out)
+            cover = put_cover(clip_id, out, page)
             caption = writing.write_caption(page, f"{m.title}. {m.hook_text}. " + " ".join(c.body for c in m.cards),
                                             [text], previous)
             previous.append(caption)

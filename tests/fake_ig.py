@@ -25,14 +25,14 @@ class FakeIG:
     def publishing_limit(self, user_id, token):
         return self.limit
 
-    def create_reel(self, user_id, token, video_url, caption, *, thumb_offset_ms, trial, collaborators, ai_label):
+    def create_reel(self, user_id, token, video_url, caption, *, thumb_offset_ms, trial, collaborators, ai_label, cover_url=None):
         if self.fail_create:
             raise self.fail_create
         if self.reject_trial and trial:
             raise ig.IGError(100, None, "Invalid parameter trial_params")
         self.created.append(dict(user_id=user_id, token=token, video_url=video_url, caption=caption,
                                  thumb_offset_ms=thumb_offset_ms, trial=trial, collaborators=collaborators,
-                                 ai_label=ai_label))
+                                 ai_label=ai_label, cover_url=cover_url))
         return f"c{len(self.created)}"
 
     def get_container(self, container_id, token, *, copyright=False):
