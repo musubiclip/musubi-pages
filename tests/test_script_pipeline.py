@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from engine import clipper
-from pages import llm, script_pipeline, store, voice, writing
+from pages import config, llm, script_pipeline, store, voice, writing
 from pages.script_pipeline import Shot
 from pages.writing import Beat, Script
 
@@ -126,6 +126,13 @@ def patch_reel(monkeypatch, seconds=30.0, shots=True):
 
 def clip(d, i):
     return d.execute("select * from clips where id = ?", (i,)).fetchone()
+
+
+@pytest.fixture
+def cfg():
+    c = config.load()
+    c.pages["billikalesh"].active = True  # paused in pages.toml; these tests run it
+    return c
 
 
 @pytest.fixture
@@ -250,6 +257,13 @@ def test_step_makes_no_new_reel_while_one_waits(d, cfg, local_store, home, monke
     script_pipeline.step(d, cfg)
     script_pipeline.step(d, cfg)
     assert d.execute("select count(*) from clips where page = 'billikalesh'").fetchone()[0] == 1
+
+
+def test_inactive_page_makes_no_reel(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch)
+    cfg.pages["billikalesh"].active = False
+    script_pipeline.step(d, cfg)
+    assert d.execute("select count(*) from clips where page = 'billikalesh'").fetchone()[0] == 0
 
 
 def test_reel_waiting_over_3_days_fails(d, cfg, local_store, home, monkeypatch):

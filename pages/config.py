@@ -20,6 +20,7 @@ class Page:
     music: list[str] = field(default_factory=list)
     clips_per_video: int = 3
     topics: str = ""
+    active: bool = True
 
 
 @dataclass

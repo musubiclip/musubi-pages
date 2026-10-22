@@ -1,11 +1,12 @@
 """Clip pipeline (podcastbawaal): jobs for the Mac, intake, pasted links, moment picking, making clips."""
 import json
 import os
+import random
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pages import config, store, voice, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
+from pages import config, store, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
 from pages.db import QUEUE_LOW, queue_size
 from engine import clipper
 
@@ -22,11 +23,13 @@ def _set(db, row, status, note=None) -> None:
 
 
 def _channels(cfg, page=None):
-    return [s for s in cfg.sources.values() if s.kind == "youtube_channel" and (page is None or s.page == page)]
+    return [s for s in cfg.sources.values() if s.kind == "youtube_channel" and (page is None or s.page == page)
+            and cfg.pages[s.page].active]
 
 
 def write_jobs(db, cfg) -> None:
-    videos = lambda status: db.execute("select * from source_videos where status = ? order by id", (status,)).fetchall()
+    videos = lambda status: [v for v in db.execute("select * from source_videos where status = ? order by id",
+                                                   (status,)).fetchall() if cfg.pages[v["page"]].active]
     store.put_json("jobs/fetch.json", {
         "watch": [{"source": s.id, "url": s.url} for s in _channels(cfg) if queue_size(db, s.page) < QUEUE_LOW],
         "prepare": [{"video_id": v["video_id"], "url": v["url"]} for v in videos("new")
@@ -173,15 +176,13 @@ def make_clips(db, cfg, video_row) -> None:
             m = json.loads(clip["moment"])
             text = " ".join(w["word"] for w in words if m["start"] <= w["start"] <= m["end"])
             layer = writing.write_layer(page, writing.Moment(**m), text)
-            intro_mp3, outro_mp3 = workdir / f"clip-{clip['id']}-intro.mp3", workdir / f"clip-{clip['id']}-outro.mp3"
-            _, intro_s = voice.speak(layer.intro, page.voice, intro_mp3)
-            _, outro_s = voice.speak(layer.takeaway, page.voice, outro_mp3)
-            if intro_s > 7 or outro_s > 5:
-                raise ValueError("layer too long")
+            music = None
+            if page.music:
+                key = random.choice(page.music)
+                music = store.get(key, config.HOME / "tmp" / key)
             out = workdir / "out" / f"{clip['id']}.mp4"
             clipper.render_one(workdir, {**m, "cards": [{**c.model_dump(), "hold": 4} for c in layer.cards]}, out,
-                               theme=page.theme, intro={"audio": intro_mp3, "seconds": intro_s},
-                               outro={"audio": outro_mp3, "seconds": outro_s, "text": layer.takeaway}, music=None)
+                               theme=page.theme, intro=None, outro=None, music=music)
             key = f"clips/{clip['id']}.mp4"
             store.put(key, out)
             caption = writing.write_caption(page, f"{m['title']}. {m['reason']}", [credit], previous)
@@ -201,7 +202,8 @@ def step(db, cfg) -> None:
     for status, work in (("prepared", pick), ("fetched", make_clips)):
         rows = db.execute("select * from source_videos where status = ? order by id", (status,)).fetchall()
         # a full queue picks nothing new: a first watch would otherwise pick every upload of every source
-        row = next((r for r in rows if work is not pick or queue_size(db, r["page"]) < QUEUE_LOW), None)
+        row = next((r for r in rows if cfg.pages[r["page"]].active
+                    and (work is not pick or queue_size(db, r["page"]) < QUEUE_LOW)), None)
         if row:
             try:
                 work(db, cfg, row)

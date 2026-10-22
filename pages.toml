@@ -11,6 +11,7 @@ music = []
 clips_per_video = 3
 
 [pages.billikalesh]
+active = false  # paused: focus on podcastbawaal clips
 pipeline = "script"
 voice = "Tara"
 window = [9, 23]

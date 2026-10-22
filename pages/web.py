@@ -1,19 +1,20 @@
-"""Review page: approve, edit or reject drafts and see page health. Behind Cloudflare Access when deployed."""
+"""JSON API for the review app (web/) plus the built app itself. Behind Cloudflare Access when deployed."""
 import json
 import os
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from urllib.parse import urlparse
 
 import jwt
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, StrictBool
 
-from pages import accounts, config, db as dbm, insights, store
+from pages import accounts, config, db as dbm, ig, insights, store
 
 app = FastAPI()
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+DIST = config.ROOT / "web" / "dist"
 _jwks: dict = {}  # one PyJWKClient per Access team, so the certs are cached
 
 
@@ -54,10 +55,17 @@ async def access(request: Request, call_next):
         return PlainTextResponse("Access not configured", status_code=503)  # never open on a deployed store
     origin = request.headers.get("origin")
     if request.method == "POST" and origin and urlparse(origin).netloc != request.headers.get("host"):
-        return PlainTextResponse("forbidden", status_code=403)  # another site posting a form here
+        return PlainTextResponse("forbidden", status_code=403)  # another site posting here
     if not _allowed(request):
         return PlainTextResponse("forbidden", status_code=403)
     return await call_next(request)
+
+
+@app.exception_handler(RequestValidationError)
+async def bad_body(request: Request, exc: RequestValidationError):
+    # 400 like every other refusal; names the field, never echoes the input (it may be a token).
+    msg = "; ".join(f"{e['loc'][-1]}: {e['msg']}" for e in exc.errors())
+    return JSONResponse({"detail": msg}, status_code=400)
 
 
 def _json(text, default):
@@ -68,27 +76,46 @@ def _page(db, cfg, handle, now):
     p = db.execute("select * from pages where handle = ?", (handle,)).fetchone()
     expires = datetime.fromisoformat(p["token_expires_at"]) if p["token"] and p["token_expires_at"] else None
     checked = datetime.fromisoformat(p["status_checked_at"]) if p["status_checked_at"] else None
-    counts = dict(db.execute("select status, count(*) from clips where page = ? and status in "
-                             "('approved', 'scheduled') group by status", (handle,)).fetchall())
-    drafts = db.execute("select * from clips where page = ? and status = 'draft' order by id", (handle,)).fetchall()
-    return {"handle": handle, "paused_at": p["paused_at"], "pause_reason": p["pause_reason"],
+    counts = dict(db.execute("select status, count(*) from clips where page = ? group by status", (handle,)).fetchall())
+    c = cfg.pages[handle]
+    return {"handle": handle, "pipeline": c.pipeline,
             "connected": bool(expires and expires > now),
             "reconnect": not (expires and expires > now + timedelta(days=10)),
-            "expires": p["token_expires_at"], "status_checked_at": p["status_checked_at"],
+            "token_expires_at": p["token_expires_at"] if p["token"] else None,
+            "paused": bool(p["paused_at"]), "paused_at": p["paused_at"], "pause_reason": p["pause_reason"],
             "status_due": not checked or now - checked > timedelta(days=7),
+            "recommendable": {"yes": True, "no": False}.get(p["recommendable"]),
+            "status_checked_at": p["status_checked_at"],
             "metrics": insights.page_metrics(db, handle, now),
-            "approved": counts.get("approved", 0), "scheduled": counts.get("scheduled", 0),
-            "drafts": [_draft(db, cfg, c) for c in drafts]}
+            "counts": {k: counts.get(k, 0) for k in ("draft", "approved", "scheduled", "published")},
+            "settings": {"voice": c.voice, "window": list(c.window), "daily_target": c.daily_target,
+                         "theme": c.theme}}
+
+
+def _source(src):
+    if not src:
+        return None
+    perm = src.permission
+    summary = (f"Permission from {perm['who']} on {perm['when']} by {perm['how']}" if perm.get("who")
+               else perm.get("licence", ""))
+    return {"name": src.id, "url": src.url, "permission": summary, "proof": perm.get("proof"),
+            "instagram": f"https://www.instagram.com/{src.instagram}/" if src.instagram else None}
+
+
+def _credit(c):
+    return {"text": c.get("credit", ""), "url": c.get("page_url")} if isinstance(c, dict) else {"text": c, "url": None}
 
 
 def _draft(db, cfg, c):
     moment, layer, script = _json(c["moment"], {}), _json(c["layer"], {}), _json(c["script"], {})
     sv = db.execute("select source_id, note from source_videos where video_id = ?", (c["video_id"],)).fetchone()
-    return {"id": c["id"], "video": store.url(c["file_key"], 3600) if c["file_key"] else None,
-            "hook": moment.get("hook_text") or script.get("hook_text"), "layer": layer,
+    return {"id": c["id"], "page": c["page"], "kind": c["kind"], "created_at": c["created_at"],
+            "video_url": store.url(c["file_key"], 3600) if c["file_key"] else None,
+            "hook": moment.get("hook_text") or script.get("hook_text"),
+            "layer": {k: layer.get(k) for k in ("intro", "takeaway", "cards")} if layer else None,
             "flags": layer.get("flags") or script.get("flags") or [], "claims": script.get("claims", []),
-            "credits": _json(c["credits"], []), "caption": c["caption"] or "",
-            "source": cfg.sources.get(sv["source_id"]) if sv and sv["source_id"] else None,
+            "credits": [_credit(x) for x in _json(c["credits"], [])], "caption": c["caption"] or "",
+            "source": _source(cfg.sources.get(sv["source_id"]) if sv and sv["source_id"] else None),
             "note": sv["note"] if sv else None}
 
 
@@ -98,32 +125,57 @@ PROBLEM_EVENTS = ("publish_error", "tick_failed", "token_refresh_failed", "token
 
 def _problems(db, now):
     since = (now - timedelta(days=7)).isoformat()
-    clips = db.execute("select page, kind, reason from clips where status = 'failed' and created_at >= ? "
-                       "order by id desc limit 50", (since,)).fetchall()
-    videos = db.execute("select coalesce(title, url, video_id) as name, status, note from source_videos "
-                        "where status in ('skipped', 'failed') and created_at >= ? order by id desc limit 50",
-                        (since,)).fetchall()
-    events = db.execute(f"select page, kind, detail, count(*) as n, max(at) as last from events "
+    clips = db.execute("select created_at as at, page, 'clip_failed' as kind, reason as detail, 1 as count "
+                       "from clips where status = 'failed' and created_at >= ? order by id desc limit 50", (since,))
+    videos = db.execute("select created_at as at, page, 'video_' || status as kind, "
+                        "coalesce(title, url, video_id) || ': ' || coalesce(note, '') as detail, 1 as count "
+                        "from source_videos where status in ('skipped', 'failed') and created_at >= ? "
+                        "order by id desc limit 50", (since,))
+    events = db.execute(f"select max(at) as at, page, kind, detail, count(*) as count from events "
                         f"where kind in ({', '.join('?' * len(PROBLEM_EVENTS))}) and at >= ? "
-                        f"group by kind, detail order by last desc limit 50", (*PROBLEM_EVENTS, since)).fetchall()
-    return {"clips": clips, "videos": videos, "events": events}
+                        f"group by kind, detail order by at desc limit 50", (*PROBLEM_EVENTS, since))
+    rows = [dict(r) for q in (clips, videos, events) for r in q.fetchall()]
+    return sorted(rows, key=lambda r: r["at"] or "", reverse=True)
 
 
-@app.get("/")
-async def review(request: Request, db=Depends(get_db), cfg=Depends(get_cfg)):
+@app.get("/api/state")
+async def state(db=Depends(get_db), cfg=Depends(get_cfg)):
     now = datetime.now(UTC)
     dbm.add_pages(db, cfg)  # works before `pages init`
-    return templates.TemplateResponse(request, "review.html", {
-        "pages": [_page(db, cfg, h, now) for h in cfg.pages], "problems": _problems(db, now),
-        "link_pages": [h for h, p in cfg.pages.items() if p.pipeline == "clips"]})
+    drafts = db.execute("select * from clips where status = 'draft' order by page, id").fetchall()
+    return {"pages": [_page(db, cfg, h, now) for h in cfg.pages],
+            "drafts": [_draft(db, cfg, c) for c in drafts if c["page"] in cfg.pages],
+            "problems": _problems(db, now)}
 
 
-def _home():
-    return RedirectResponse("/", status_code=303)
+OK = {"ok": True}
 
 
-@app.post("/clips/{cid}/approve")
-async def approve(cid: int, caption: str = Form(""), db=Depends(get_db)):
+class Approve(BaseModel):
+    caption: str = ""
+
+
+class Reject(BaseModel):
+    reason: str = ""
+
+
+class Status(BaseModel):
+    recommendable: StrictBool
+
+
+class Link(BaseModel):
+    url: str
+    page: str
+    note: str = ""
+
+
+class Connect(BaseModel):
+    token: str
+
+
+@app.post("/api/clips/{cid}/approve")
+async def approve(cid: int, body: Approve, db=Depends(get_db)):
+    caption = body.caption
     if len(caption) > 2200:
         raise HTTPException(400, "caption is over 2200 characters")
     if not caption.strip():
@@ -144,49 +196,56 @@ async def approve(cid: int, caption: str = Form(""), db=Depends(get_db)):
     db.commit()
     if not cur.rowcount:
         raise HTTPException(409, "clip is not a draft")
-    return _home()
+    return OK
 
 
-@app.post("/clips/{cid}/reject")
-async def reject(cid: int, reason: str = Form(""), db=Depends(get_db)):
-    if not reason.strip():
+@app.post("/api/clips/{cid}/reject")
+async def reject(cid: int, body: Reject, db=Depends(get_db)):
+    if not body.reason.strip():
         raise HTTPException(400, "a reason is required")
     cur = db.execute("update clips set status = 'rejected', reason = ? where id = ? and status = 'draft'",
-                     (reason.strip(), cid))
+                     (body.reason.strip(), cid))
     db.commit()
     if not cur.rowcount:
         raise HTTPException(409, "clip is not a draft")
-    return _home()
+    return OK
 
 
-@app.post("/pages/{handle}/unpause")
+@app.post("/api/pages/{handle}/unpause")
 async def unpause(handle: str, db=Depends(get_db)):
     accounts.unpause(db, handle, datetime.now(UTC))
-    return _home()
+    return OK
 
 
-@app.post("/pages/{handle}/status")
-async def account_status(handle: str, recommendable: str = Form(...), db=Depends(get_db)):
-    if recommendable not in ("yes", "no"):
-        raise HTTPException(400, "recommendable must be yes or no")
+@app.post("/api/pages/{handle}/status")
+async def account_status(handle: str, body: Status, db=Depends(get_db)):
     now = datetime.now(UTC)
+    answer = "yes" if body.recommendable else "no"
     db.execute("update pages set status_checked_at = ?, recommendable = ? where handle = ?",
-               (now.isoformat(), recommendable, handle))
+               (now.isoformat(), answer, handle))
     db.commit()
-    if recommendable == "no":
+    if not body.recommendable:
         accounts.pause(db, handle, "not recommendable", now)
-    return _home()
+    return OK
 
 
-@app.post("/links")
-async def links(url: str = Form(...), page: str = Form(...), note: str = Form(""), db=Depends(get_db),
-          cfg=Depends(get_cfg)):
+@app.post("/api/links")
+async def links(body: Link, db=Depends(get_db), cfg=Depends(get_cfg)):
     from pages.clips_pipeline import add_link
     try:
-        add_link(db, cfg, url, page, note)
+        add_link(db, cfg, body.url, body.page, body.note)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return _home()
+    return OK
+
+
+@app.post("/api/pages/{handle}/connect")
+async def connect(handle: str, body: Connect, db=Depends(get_db), cfg=Depends(get_cfg)):
+    try:
+        accounts.connect(db, handle, body.token, datetime.now(UTC), cfg)
+    except (ValueError, ig.IGError) as e:
+        raise HTTPException(400, str(e).replace(body.token, "[token]"))  # never echo the token
+    return OK
 
 
 @app.get("/files/{key:path}")
@@ -202,3 +261,11 @@ async def files(key: str):
     if not path.is_relative_to(store._backend()[1].resolve() / "clips") or not path.is_file():
         raise HTTPException(404)
     return FileResponse(path)
+
+
+if DIST.is_dir():  # last: the API routes above win
+    app.mount("/", StaticFiles(directory=DIST, html=True), name="app")
+else:
+    @app.get("/")
+    async def home():
+        return PlainTextResponse("Run `npm run build` in web/ first")
