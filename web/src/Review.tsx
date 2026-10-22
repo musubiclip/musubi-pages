@@ -109,7 +109,7 @@ function DraftCard({ d, act }: { d: Draft; act: Act }) {
             )}
           </div>
 
-          {d.layer && (
+          {d.layer && (d.layer.intro || d.layer.takeaway || cards.length > 0) && (
             <div>
               <Label11>Original layer</Label11>
               <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
