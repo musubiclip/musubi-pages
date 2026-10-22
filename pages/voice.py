@@ -1,6 +1,7 @@
-"""Polly voice with word timings."""
+"""Voice with word timings: macOS `say` locally (default), Polly when PAGES_TTS=polly."""
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,6 +24,44 @@ def _seconds(path: Path) -> float:
 
 
 def speak(text: str, voice: str, out: Path) -> tuple[list[dict], float]:
+    if os.environ.get("PAGES_TTS", "say") == "polly":
+        return _speak_polly(text, voice, out)
+    return _speak_say(text, voice, out)
+
+
+def _speak_say(text: str, voice: str, out: Path) -> tuple[list[dict], float]:
+    if not re.search(r"\w", text):
+        raise ValueError("empty text")
+    sentences = [s for s in re.split(r"(?<=[.?!])\s+", text.strip()) if s]
+    words, offset = [], 0.0
+    with tempfile.TemporaryDirectory() as d:
+        parts = []
+        for i, sentence in enumerate(sentences):
+            part = Path(d) / f"{i}.aiff"
+            if subprocess.run(["say", "-v", voice, "-o", str(part), "--", sentence], capture_output=True).returncode:
+                raise RuntimeError(f"say failed for voice {voice!r}")
+            length = _seconds(part)
+            # same weighting the engine uses for english.json
+            tokens = sentence.split()
+            total, done = sum(len(t) + 2 for t in tokens), 0
+            for t in tokens:
+                start = offset + length * done / total
+                done += len(t) + 2
+                words.append({"word": t, "start": round(start, 3), "end": round(offset + length * done / total, 3)})
+            offset += length
+            parts.append(part)
+        inputs = [a for p in parts for a in ("-i", str(p))]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex",
+                        "".join(f"[{i}:a]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=0:a=1",
+                        "-ar", "44100", "-ac", "1", "-c:a", "libmp3lame", str(out)], capture_output=True, check=True)
+    seconds = round(_seconds(out), 3)
+    if words:
+        words[-1]["end"] = seconds
+    return words, seconds
+
+
+def _speak_polly(text: str, voice: str, out: Path) -> tuple[list[dict], float]:
     polly = _polly()
     args = dict(Text=text, VoiceId=voice, Engine="neural", LanguageCode="en-IN")
     out.write_bytes(polly.synthesize_speech(OutputFormat="mp3", **args)["AudioStream"].read())
@@ -53,7 +92,7 @@ def check_aws() -> None:
     for v in _polly().describe_voices(LanguageCode="en-IN")["Voices"]:
         print(v["Id"], v.get("SupportedEngines"))
     with tempfile.TemporaryDirectory() as d:
-        _, seconds = speak("Testing one two", os.environ.get("PAGES_VOICE", "Kajal"), Path(d) / "t.mp3")
+        _, seconds = _speak_polly("Testing one two", os.environ.get("PAGES_VOICE", "Kajal"), Path(d) / "t.mp3")
         print(f"spoke {seconds} s")
     if os.environ.get("PAGES_LLM") == "bedrock":
         print(llm.ask("Reply with ok true.", Ok))

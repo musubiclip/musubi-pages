@@ -289,10 +289,13 @@ def test_a_recent_failure_waits_an_hour(d, cfg, local_store, home, monkeypatch):
     assert d.execute("select count(*) from clips").fetchone()[0] == 2
 
 
-def test_no_stock_keys_fails_the_reel_before_writing(d, cfg, local_store, home, monkeypatch):
+def test_no_stock_keys_sends_every_beat_to_cc(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch)
     monkeypatch.delenv("PEXELS_KEY", raising=False)
     monkeypatch.delenv("PIXABAY_KEY", raising=False)
-    monkeypatch.setattr(writing, "write_script", lambda *a: pytest.fail("Claude called without stock keys"))
+    monkeypatch.setattr(script_pipeline, "search_footage", lambda q, s, used: None)
     row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"]))
-    assert (row["status"], row["reason"]) == ("failed", "no stock API keys")
+    assert row["status"] == "waiting_footage"
+    assert {s["provider"] for s in json.loads(row["script"])["shots"]} == {"cc"}
+    events = d.execute("select kind, detail from events where page = 'billikalesh'").fetchall()
+    assert [tuple(e) for e in events] == [("no_stock_keys", "using Creative Commons footage")]
