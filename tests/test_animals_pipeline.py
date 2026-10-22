@@ -13,6 +13,15 @@ INFO = {"id": "cat1", "title": "Cat vs cucumber", "channel": "Bee", "webpage_url
         "license": "Creative Commons Attribution license (reuse allowed)", "duration": 120}
 
 
+@pytest.fixture
+def cfg():
+    c = config.load()
+    p = c.pages["tech_bawaal"]  # tech_bawaal is a clips page; these tests run an animals page
+    p.pipeline, p.topics = "animals", "cats, dogs, wild animals and nature"
+    p.queries = ["my cat", "cat playing", "kitten playing", "my dog", "dog playing", "puppy", "wildlife"]
+    return c
+
+
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "HOME", tmp_path / "home")
@@ -30,7 +39,7 @@ def downloaded(d, local_store, vid="cat1"):
     store.put_json(f"work/{vid}/source-audio.info.json", {**INFO, "id": vid})
     store.put_json(f"work/{vid}/source.mp4", "video")
     d.execute("insert into source_videos (source_id, page, video_id, url, title, status, note) values "
-              "('cc_youtube', 'billikalesh', ?, ?, 'Cat vs cucumber', 'downloaded', 'CC BY')", (vid, INFO["webpage_url"]))
+              "('cc_youtube', 'tech_bawaal', ?, ?, 'Cat vs cucumber', 'downloaded', 'CC BY')", (vid, INFO["webpage_url"]))
     d.commit()
 
 
@@ -42,12 +51,12 @@ def video(d, vid="cat1"):
 
 def test_jobs_rotate_queries_and_stop_while_a_video_is_in_progress(d, cfg, local_store):
     ap.write_jobs(d, cfg)
-    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "my cat", "skip": []}]
-    store.put_json("inbox/animals/none.json", {"none": True, "page": "billikalesh", "query": "my cat"})
+    assert store.get_json("jobs/animals.json") == [{"page": "tech_bawaal", "query": "my cat", "skip": []}]
+    store.put_json("inbox/animals/none.json", {"none": True, "page": "tech_bawaal", "query": "my cat"})
     ap.take_inbox(d, cfg)
     ap.write_jobs(d, cfg)
     assert store.get_json("jobs/animals.json")[0]["query"] == "cat playing"
-    store.put_json("inbox/animals/cat1.json", {"page": "billikalesh", "video_id": "cat1", "url": INFO["webpage_url"],
+    store.put_json("inbox/animals/cat1.json", {"page": "tech_bawaal", "video_id": "cat1", "url": INFO["webpage_url"],
                                                "title": "Cat vs cucumber", "channel": "Bee", "license": INFO["license"]})
     ap.take_inbox(d, cfg)
     assert not store.keys("inbox/animals/")
@@ -58,15 +67,15 @@ def test_jobs_rotate_queries_and_stop_while_a_video_is_in_progress(d, cfg, local
     assert store.get_json("jobs/animals.json") == []  # one video at a time
     d.execute("update source_videos set status = 'cut'")
     ap.write_jobs(d, cfg)
-    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "kitten playing", "skip": ["cat1"]}]
+    assert store.get_json("jobs/animals.json") == [{"page": "tech_bawaal", "query": "kitten playing", "skip": ["cat1"]}]
 
 
 def test_no_jobs_when_paused_or_the_queue_is_full(d, cfg, local_store):
     for _ in range(7):
-        add_clip(d, "billikalesh", "draft")
+        add_clip(d, "tech_bawaal", "draft")
     ap.write_jobs(d, cfg)
     assert store.get_json("jobs/animals.json") == []
-    cfg.pages["billikalesh"].active = False
+    cfg.pages["tech_bawaal"].active = False
     d.execute("delete from clips")
     ap.write_jobs(d, cfg)
     assert store.get_json("jobs/animals.json") == []
@@ -97,22 +106,22 @@ def entry(vid, duration=120, license=INFO["license"]):
 def test_fetch_keeps_the_first_unused_cc_video_of_sane_length(local_store, monkeypatch):
     calls = fake_ytdlp(monkeypatch, [entry("std", license="Standard YouTube License"), entry("short", 20),
                                      entry("long", 3600), entry("used"), entry("ok")])
-    assert ap.fetch_animals({"page": "billikalesh", "query": "funny cat", "skip": ["used"]}) is True
+    assert ap.fetch_animals({"page": "tech_bawaal", "query": "funny cat", "skip": ["used"]}) is True
     down = [c for c in calls if "-J" not in c]
     assert len(down) == 1 and down[0][-1] == "https://youtu.be/ok" and "--ignore-errors" in calls[0]
     assert down[0][down[0].index("-f") + 1] == ap.AV_FORMAT and "+ba" in ap.AV_FORMAT
     assert store.exists("work/ok/source.mp4")
     assert store.get_json("work/ok/source-audio.info.json")["license"] == INFO["license"]
-    assert store.get_json("inbox/animals/ok.json") == {"page": "billikalesh", "video_id": "ok", "url": "https://youtu.be/ok",
+    assert store.get_json("inbox/animals/ok.json") == {"page": "tech_bawaal", "video_id": "ok", "url": "https://youtu.be/ok",
                                                        "title": "T ok", "channel": "Bee", "license": INFO["license"]}
     # the server has not taken that yet: no second download
-    assert ap.fetch_animals({"page": "billikalesh", "query": "funny cat", "skip": []}) is False
+    assert ap.fetch_animals({"page": "tech_bawaal", "query": "funny cat", "skip": []}) is False
 
 
 def test_fetch_skips_a_stub_download_and_reports_none(local_store, monkeypatch):
     fake_ytdlp(monkeypatch, [entry("a")], seconds=3.0)
-    assert ap.fetch_animals({"page": "billikalesh", "query": "funny cat", "skip": []}) is False
-    assert store.get_json("inbox/animals/none.json") == {"none": True, "page": "billikalesh", "query": "funny cat"}
+    assert ap.fetch_animals({"page": "tech_bawaal", "query": "funny cat", "skip": []}) is False
+    assert store.get_json("inbox/animals/none.json") == {"none": True, "page": "tech_bawaal", "query": "funny cat"}
     assert not store.exists("work/a/source.mp4")
 
 
@@ -120,7 +129,7 @@ def test_fetcher_runs_animal_jobs(local_store, monkeypatch):
     from pages import fetcher
     seen = []
     monkeypatch.setattr(ap, "fetch_animals", lambda job: seen.append(job) or True)
-    store.put_json("jobs/animals.json", [{"page": "billikalesh", "query": "funny cat", "skip": []}])
+    store.put_json("jobs/animals.json", [{"page": "tech_bawaal", "query": "funny cat", "skip": []}])
     assert fetcher.run_jobs()["animals"] == 1 and seen[0]["query"] == "funny cat"
 
 
@@ -153,7 +162,7 @@ def test_pick_sends_the_sheets_and_cuts_to_claude(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "ask", lambda prompt, schema, images=None: (
         seen.update(prompt=prompt, images=images), ap.Moments(moments=[M(10, 30)]))[1])
     sheet = tmp_path / "sheet-01.png"
-    got = ap.pick_moments(cfg.pages["billikalesh"], INFO, 120, [4.5, 12.25], [sheet], 2)
+    got = ap.pick_moments(cfg.pages["tech_bawaal"], INFO, 120, [4.5, 12.25], [sheet], 2)
     assert got[0].start == 10 and seen["images"] == [sheet]
     assert "4.5, 12.2" in seen["prompt"] and "Cat vs cucumber" in seen["prompt"] and "15 to 45" in seen["prompt"]
 
@@ -187,7 +196,7 @@ def test_cut_renders_drafts_with_cards_music_and_the_cc_credit(d, cfg, local_sto
     assert [(r["start"], r["end"], r["status"], r["kind"]) for r in rows] == [(10, 30, "draft", "clip"), (50, 80, "draft", "clip")]
     workdir, moment, kw = fakes[0]
     assert moment["cards"][0] == {"at": 12.0, "title": "Why", "body": "Cats startle at long shapes.", "hold": 4}
-    assert kw == {"theme": cfg.pages["billikalesh"].theme, "intro": None, "outro": None, "music": None}
+    assert kw == {"theme": cfg.pages["tech_bawaal"].theme, "intro": None, "outro": None, "music": None}
     meta = json.loads((workdir / "meta.json").read_text())
     assert meta["url"] == INFO["webpage_url"] and meta["path"] == str(workdir / "source.mp4") and meta["language"] == "en"
     assert json.loads((workdir / "transcript.json").read_text())["segments"] == []
@@ -225,7 +234,7 @@ def test_no_usable_moment_skips_and_a_pick_error_fails_the_video(d, cfg, local_s
     monkeypatch.setattr(ap, "pick_moments", boom)
     ap.step(d, cfg)
     assert video(d, "cat2")["status"] == "failed" and video(d, "cat2")["note"] == "limit"
-    assert d.execute("select kind from events where page = 'billikalesh'").fetchone()[0] == "animals_failed"
+    assert d.execute("select kind from events where page = 'tech_bawaal'").fetchone()[0] == "animals_failed"
 
 
 def test_cli_work_runs_the_animals_step(monkeypatch, tmp_path):

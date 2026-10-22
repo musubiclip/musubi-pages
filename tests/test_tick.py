@@ -17,8 +17,8 @@ def test_backup_once_per_day(d, local_store):
 def test_media_deleted_thirty_days_after_posting(d, local_store, tmp_path):
     f = tmp_path / "v.mp4"
     f.write_bytes(b"v")
-    old = add_clip(d, "billikalesh", "published", published_at=(T - timedelta(days=31)).isoformat())
-    new = add_clip(d, "billikalesh", "published", published_at=(T - timedelta(days=29)).isoformat())
+    old = add_clip(d, "tech_bawaal", "published", published_at=(T - timedelta(days=31)).isoformat())
+    new = add_clip(d, "tech_bawaal", "published", published_at=(T - timedelta(days=29)).isoformat())
     for cid in (old, new):
         store.put(f"clips/{cid}.mp4", f)
     tick.delete_old_media(d, T)

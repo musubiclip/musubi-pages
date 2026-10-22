@@ -10,16 +10,17 @@ theme = {hot = "#7c5cff", sun = "#ffd23f", font = "Bricolage Grotesque"}
 music = []
 clips_per_video = 3
 
-[pages.billikalesh]
+# topics feed the clip layer and caption prompts (writing._topics).
+[pages.tech_bawaal]
 active = true
-pipeline = "animals"
+pipeline = "clips"
 voice = "Tara"
 window = [9, 23]
 daily_target = 1
-theme = {hot = "#ff8a3d", sun = "#ffe066", font = "Poppins"}
+theme = {hot = "#256dfd", sun = "#5cff3a", font = "Poppins"}
 music = []
-topics = "cats, dogs, wild animals and nature: one surprising fact or behaviour explained per reel"
-queries = ["my cat", "cat playing", "kitten playing", "my dog", "dog playing", "puppy", "wildlife"]
+clips_per_video = 3
+topics = "tech and AI: launches, hot takes, founders, AI tools and debates"
 
 # Set from what the API actually does (verify-ig).
 [api]
@@ -27,17 +28,3 @@ copyright_check = false
 trial_reels = false
 collaborators = false
 follower_type_views = false
-
-[[sources]]
-id = "pexels"
-page = "billikalesh"
-kind = "pexels"
-url = "https://www.pexels.com"
-permission = {licence = "Pexels License"}
-
-[[sources]]
-id = "pixabay"
-page = "billikalesh"
-kind = "pixabay"
-url = "https://pixabay.com"
-permission = {licence = "Pixabay Content License"}

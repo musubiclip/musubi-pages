@@ -6,7 +6,7 @@ from pages import accounts, ig, publish, store
 from pages import db as dbm
 
 NOW = datetime(2026, 11, 2, 8, tzinfo=UTC)
-P = "billikalesh"
+P = "tech_bawaal"
 
 
 def setup(d, monkeypatch, first_post_at=None):
@@ -275,7 +275,7 @@ def test_full_quota_late_at_night_reslots_instead_of_posting_outside_the_window(
 
 def test_a_published_container_wins_over_lateness_and_a_withdrawn_source(d, cfg, fake_ig, monkeypatch):
     setup(d, monkeypatch)
-    d.execute("insert into source_videos (source_id, page, video_id) values ('gone', 'billikalesh', 'v8')")
+    d.execute("insert into source_videos (source_id, page, video_id) values ('gone', 'tech_bawaal', 'v8')")
     c = add_clip(d, P, "scheduled", video_id="v8", container_id="c9",
                  scheduled_at=(NOW - timedelta(hours=5)).isoformat())
     fake_ig.container = {"status_code": "PUBLISHED"}
@@ -319,7 +319,7 @@ def test_an_unexpected_error_on_one_clip_does_not_stop_the_next_page(d, cfg_with
 
 def test_a_clip_whose_source_was_withdrawn_is_not_published(d, cfg, fake_ig, monkeypatch):
     setup(d, monkeypatch)
-    d.execute("insert into source_videos (source_id, page, video_id) values ('gone', 'billikalesh', 'v7')")
+    d.execute("insert into source_videos (source_id, page, video_id) values ('gone', 'tech_bawaal', 'v7')")
     c = add_clip(d, P, "scheduled", video_id="v7", scheduled_at=(NOW - timedelta(minutes=1)).isoformat())
     publish.publish_due(d, cfg, NOW)
     assert fake_ig.created == []
@@ -345,7 +345,7 @@ def test_a_claim_late_in_a_long_tick_is_not_born_stale(tmp_path, cfg_with_podcas
     path = tmp_path / "t.db"
     d1 = dbm.connect(path)
     dbm.add_pages(d1, cfg_with_podcast)
-    for h in ("billikalesh", "podcastbawaal"):
+    for h in ("tech_bawaal", "podcastbawaal"):
         d1.execute("update pages set ig_user_id='1', token='tok', token_expires_at=? where handle=?",
                    ((NOW + timedelta(days=50)).isoformat(), h))
     d1.commit()

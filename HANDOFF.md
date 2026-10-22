@@ -11,11 +11,11 @@ Musubi will run 27 niche Instagram pages with Hinglish handles and grow them wit
 **Done**
 - Research on growth, spam and bans, the Instagram API, and Postoria (rejected). It's in `research/`, and the conclusions are folded into `design.md` §3.
 - Sign up emails. `musubi.si` is on Cloudflare (account of developer@musubiclip.com). Email Routing forwards `<username>@musubi.si` for all 27 usernames to the Google Group **pages@musubiclip.com** (owners: developer@ and prateek@; invite only; accepts outside mail). Catch-all is off. A new address is one more routing rule.
-- **billikalesh** is a finished Creator account: name "Billi Kalesh", bio "Daily cat chaos, dog drama and wild nature moments 🐾 / Tag us in your pet's best fails", category Digital creator (hidden), avatar in `assets/pages/billikalesh/avatar.jpg`, 0 posts.
+- **tech_bawaal** (was billikalesh, renamed 22 Oct 2026) is the tech and AI clips page and the second pilot page. Name "Tech Bawaal", chip avatar in `assets/pages/tech_bawaal/avatar.jpg` (the old avatar stays in `assets/pages/billikalesh/`). It's connected to the "Musubi Pages" Meta app (app id 1488230259790933) as an Instagram tester, Instagram user id 17841424018966348.
 - The design is written (`design.md`), with a builder check pending (see "Open" below).
 
 **In progress (Prateek, by hand)**
-- Two factor login on billikalesh (authenticator app; key and backup codes saved in Bitwarden).
+- Two factor login on tech_bawaal (authenticator app; key and backup codes saved in Bitwarden).
 - The other accounts, created over the coming days at 3 to 5 a day. One new account, **karmaloredaily**, hit a phone checkpoint; its appeal failed and it is **permanently disabled (21 Oct 2026, no further review)**. Don't recreate it or reuse its email or phone; account creation is paused for a week or two and will continue from another device, one account a day.
 - Buying 1 or 2 prepaid SIMs just for the pages. **Do not** use Musubi's WhatsApp Business number, which sends marketplace login codes.
 - Setting up Bitwarden with one item per page: handle, email, password, TOTP key, backup codes, which SIM, whose birthday (one real adult, the same on all), created date.
@@ -50,7 +50,7 @@ Musubi will run 27 niche Instagram pages with Hinglish handles and grow them wit
 | 24 | Football and other sports | ballknowledgebhai | footykalesh, goalbhaukaal |
 | 25 | Cars and bikes | gaadibhaukaal | revkalesh, torqueauradesi |
 | 26 | Spirituality | ~~karmaloredaily~~ disabled 21 Oct 2026; angle on hold | none |
-| 27 | Animals and nature | **billikalesh (pilot, done)** | doggolore, pawbhaukaal |
+| 27 | Animals and nature | unclaimed (billikalesh became tech_bawaal on 22 Oct 2026) | doggolore, pawbhaukaal |
 
 The sign up email is always the primary handle at `musubi.si`, even when a backup handle is used. Suggested profile for karmaloredaily: name "Karma Lore Daily", bio "Daily lessons on karma, dharma and life 🕉️ / Stories from the Gita, saints and everyday life".
 

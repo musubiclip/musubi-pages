@@ -6,10 +6,10 @@ from pages.config import ROOT
 
 def test_load_reads_the_two_pilot_pages():
     cfg = config.load()
-    assert set(cfg.pages) == {"podcastbawaal", "billikalesh"}
+    assert set(cfg.pages) == {"podcastbawaal", "tech_bawaal"}
     assert cfg.pages["podcastbawaal"].pipeline == "clips"
-    assert cfg.pages["billikalesh"].pipeline == "animals" and cfg.pages["billikalesh"].queries
-    assert cfg.pages["billikalesh"].window == (9, 23) and cfg.pages["billikalesh"].daily_target == 1
+    assert cfg.pages["tech_bawaal"].pipeline == "clips" and cfg.pages["tech_bawaal"].clips_per_video == 3
+    assert cfg.pages["tech_bawaal"].window == (9, 23) and cfg.pages["tech_bawaal"].daily_target == 1
 
 
 def test_youtube_source_needs_a_permission_record(tmp_path):

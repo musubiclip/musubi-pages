@@ -5,7 +5,7 @@ import pytest
 from pages import llm, writing
 
 PAGE = SimpleNamespace(handle="podcastbawaal", topics=["startups", "founders"])
-BILLI = SimpleNamespace(handle="billikalesh", topics=["cats"])
+BILLI = SimpleNamespace(handle="tech_bawaal", topics=["cats"])
 
 
 def M(start=100.0, end=150.0):
@@ -92,12 +92,12 @@ def test_script_prompt_lists_used_ideas_and_validates_beats(monkeypatch):
     monkeypatch.setattr(llm, "ask", lambda p, s: (seen.setdefault("p", p), SCRIPT_WITH_4_BEATS)[1])
     with pytest.raises(ValueError, match="5 to 7 beats"):
         writing.write_script(BILLI, ["why cats knead"])
-    assert "why cats knead" in seen["p"] and "billikalesh" in seen["p"] and "cats" in seen["p"]
+    assert "why cats knead" in seen["p"] and "tech_bawaal" in seen["p"] and "cats" in seen["p"]
 
 
 def test_topics_string_used_verbatim(monkeypatch):
     topics = "cats, dogs, wild animals and nature: funny facts"
-    page = SimpleNamespace(handle="billikalesh", topics=topics)
+    page = SimpleNamespace(handle="tech_bawaal", topics=topics)
     seen = []
     monkeypatch.setattr(llm, "ask", lambda p, s: (seen.append(p), {writing.Layer: layer(120.0), writing.Script: SCRIPT_WITH_4_BEATS}.get(s) or s(text="t", hashtags=[]))[1])
     writing.write_layer(page, M(), "text")
