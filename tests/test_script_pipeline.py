@@ -92,6 +92,7 @@ def test_beat_spans_cover_the_voiceover_in_order():
 
 def patch_reel(monkeypatch, seconds=30.0, shots=True):
     seen = {}
+    monkeypatch.setenv("PEXELS_KEY", "k")
     script = make_script()
     monkeypatch.setattr(writing, "write_script", lambda page, used: script)
     step = seconds / 30
@@ -269,3 +270,29 @@ def test_montage_is_vertical_and_as_long_as_the_voice(tmp_path):
     v = next(s for s in probe["streams"] if s["codec_type"] == "video")
     assert (v["width"], v["height"]) == (1080, 1920)
     assert abs(float(probe["format"]["duration"]) - 4.0) < 0.2
+
+
+def test_old_clip_credits_on_a_script_page_are_ignored(d, cfg, local_store, home, monkeypatch):
+    d.execute("insert into clips (page, kind, status, credits) values ('billikalesh', 'clip', 'draft', ?)",
+              (json.dumps(["🎙️ Some podcast"]),))
+    assert script_pipeline._used(d, "billikalesh") == set()
+
+
+def test_a_recent_failure_waits_an_hour(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch)
+    d.execute("insert into clips (page, kind, status, created_at) values ('billikalesh', 'script', 'failed', ?)",
+              ((datetime.now(UTC) - timedelta(minutes=10)).isoformat(),))
+    script_pipeline.step(d, cfg)
+    assert d.execute("select count(*) from clips").fetchone()[0] == 1
+    d.execute("update clips set created_at = ?", ((datetime.now(UTC) - timedelta(hours=2)).isoformat(),))
+    script_pipeline.step(d, cfg)
+    assert d.execute("select count(*) from clips").fetchone()[0] == 2
+
+
+def test_no_stock_keys_fails_the_reel_before_writing(d, cfg, local_store, home, monkeypatch):
+    patch_reel(monkeypatch)
+    monkeypatch.delenv("PEXELS_KEY", raising=False)
+    monkeypatch.delenv("PIXABAY_KEY", raising=False)
+    monkeypatch.setattr(writing, "write_script", lambda *a: pytest.fail("Claude called without stock keys"))
+    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"]))
+    assert (row["status"], row["reason"]) == ("failed", "no stock API keys")

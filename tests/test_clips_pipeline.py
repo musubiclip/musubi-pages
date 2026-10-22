@@ -157,7 +157,7 @@ def test_advance_skips_errors_and_marks_fetched(d, cfg_with_podcast, local_store
 def test_a_video_belongs_to_one_page_only(d, cfg_with_podcast, local_store):
     clips_pipeline.add_link(d, cfg_with_podcast, "https://youtu.be/abc", "podcastbawaal", "")
     with pytest.raises(ValueError, match="already used by podcastbawaal"):
-        clips_pipeline.add_link(d, cfg_with_podcast, "https://www.youtube.com/watch?v=abc", "billikalesh", "note")
+        clips_pipeline.add_link(d, cfg_with_podcast, "https://www.youtube.com/watch?v=abc", "podcastbawaal", "note")
 
 
 def test_belongs_matches_handle_or_channel_url():
@@ -296,3 +296,19 @@ def test_an_engine_failure_fails_the_clip_and_the_run_goes_on(d, cfg_with_podcas
     clip = d.execute("select status, reason from clips where video_id='vid3'").fetchone()
     assert tuple(clip) == ("failed", "hyperframes render failed")
     assert status(d, "vid3")["status"] == "cut"
+
+
+def test_links_only_go_to_clip_pages(d, cfg_with_podcast, local_store):
+    with pytest.raises(ValueError, match="links only go to clip pages"):
+        clips_pipeline.add_link(d, cfg_with_podcast, "https://youtu.be/eee", "billikalesh", "ok")
+    assert status(d, "eee") is None
+
+
+def test_a_full_queue_picks_and_prepares_nothing(d, cfg_with_podcast, prepared_video, monkeypatch):
+    add_video(d, "n1", "new")
+    for _ in range(7):
+        add_clip(d, "podcastbawaal", "draft")
+    monkeypatch.setattr(writing, "pick_moments", lambda *a: pytest.fail("picked with a full queue"))
+    clips_pipeline.step(d, cfg_with_podcast)
+    assert store.get_json("jobs/fetch.json")["prepare"] == []
+    assert status(d, "vid1")["status"] == "prepared"
