@@ -281,3 +281,18 @@ def test_step_fails_a_video_whose_pick_breaks(d, cfg_with_podcast, prepared_vide
     clips_pipeline.step(d, cfg_with_podcast)
     assert tuple(status(d, "vid1")) == ("failed", "claude said no")
     assert store.exists("jobs/fetch.json")
+
+
+def test_an_engine_failure_fails_the_clip_and_the_run_goes_on(d, cfg_with_podcast, fetched_video, monkeypatch):
+    real = clipper.render_one
+    patch_render(monkeypatch)
+    monkeypatch.setattr(writing, "write_caption", lambda *a: "c")
+
+    def engine_exits(*a, **k):
+        raise SystemExit("hyperframes render failed")
+    monkeypatch.setattr(clipper, "_render_one", engine_exits)
+    monkeypatch.setattr(clipper, "render_one", real)
+    clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
+    clip = d.execute("select status, reason from clips where video_id='vid3'").fetchone()
+    assert tuple(clip) == ("failed", "hyperframes render failed")
+    assert status(d, "vid3")["status"] == "cut"

@@ -204,6 +204,28 @@ def test_theme_sets_colours_and_font():
     assert "--hot: #7c5cff" in html and "--display: \"Poppins\"" in html and "Poppins-ExtraBold.ttf" in html
 
 
+def test_theme_font_without_a_file_keeps_the_template_face():
+    html = clipper.reel_page({"duration": 30}, "v2", 30, 30, "", {"hot": "#7c5cff", "sun": "#ffd23f",
+                                                                 "font": "Bricolage Grotesque"})
+    assert "Bricolage Grotesque-ExtraBold.ttf" not in html and '--display: "Bricolage Grotesque"' in html
+
+
+def test_render_one_turns_an_engine_exit_into_an_error(tmp_path, monkeypatch):
+    words = [word(f"w{i}." if i % 10 == 9 else f"w{i}", i * 0.5, i * 0.5 + 0.4) for i in range(120)]
+    (tmp_path / "transcript.json").write_text(json.dumps({"language": "en", "source": "youtube",
+                                                          "segments": clipper.group_segments(words)}))
+    (tmp_path / "meta.json").write_text(json.dumps({"title": "f", "url": "", "language": "en"}))
+    monkeypatch.setattr(clipper, "find_stream", lambda w, m: None)
+    monkeypatch.setattr(clipper, "video_section", lambda w, m, c, s: ("v.mp4", 0.0))
+    monkeypatch.setattr(clipper, "face_detector", lambda: None)
+
+    def render_styled(*a, **k):
+        raise SystemExit("hyperframes render failed")
+    monkeypatch.setattr(clipper, "render_styled", render_styled)
+    with pytest.raises(RuntimeError, match="hyperframes render failed"):
+        clipper.render_one(tmp_path, MOMENT_30S, tmp_path / "r.mp4", theme=THEME)
+
+
 @pytest.mark.slow
 def test_render_one_makes_a_vertical_reel(fixture_workdir, tmp_path, monkeypatch):
     monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")

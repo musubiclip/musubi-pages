@@ -773,7 +773,8 @@ def reel_page(reel, design, total, duration, music_tag, theme, watermark=False):
         html = html.replace("#ffd23f", theme["sun"]).replace("255, 210, 63", rgb(theme["sun"]))
         html = html.replace('--display: "Bricolage Grotesque", sans-serif;', f'--display: "{font}", sans-serif;')
         html = html.replace('const FONT = "Bricolage Grotesque";', f'const FONT = "{font}";')
-        html = html.replace("<style>", f'<style>\n      @font-face {{ font-family: "{font}"; src: url("fonts/{font}-ExtraBold.ttf") format("truetype"); font-weight: 800; }}', 1)
+        if (FONTS / f"{font}-ExtraBold.ttf").exists():  # else the template's own @font-face stays
+            html = html.replace("<style>", f'<style>\n      @font-face {{ font-family: "{font}"; src: url("fonts/{font}-ExtraBold.ttf") format("truetype"); font-weight: 800; }}', 1)
     return html
 
 
@@ -817,7 +818,14 @@ def render_styled(workdir, video, clip, words, name, detector, out, parallel, *,
 
 
 def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None):
-    """One moment, design v2, no watermark, no end screen."""
+    """One moment, design v2, no watermark, no end screen. Engine exits become errors callers can catch."""
+    try:
+        return _render_one(workdir, moment, out, theme=theme, intro=intro, outro=outro, music=music)
+    except SystemExit as e:
+        raise RuntimeError(str(e.code)) from None
+
+
+def _render_one(workdir, moment, out, *, theme, intro, outro, music):
     meta = json.loads((workdir / "meta.json").read_text(encoding="utf-8"))
     words = all_words(json.loads((workdir / "transcript.json").read_text(encoding="utf-8")))
     clips = tidy_clips([moment], words, 1)
