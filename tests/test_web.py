@@ -139,7 +139,81 @@ def test_files_served_only_inside_a_local_store(client, local_store, monkeypatch
     assert client.get("/files/..%2F..%2Ft.db").status_code == 404
     assert client.get("/files/%2E%2E/t.db").status_code == 404
     monkeypatch.setenv("PAGES_STORE", "s3://bucket")
-    assert client.get("/files/clips/1.mp4").status_code == 404
+    assert client.get("/files/clips/1.mp4").status_code == 503  # no Access configured: nothing is served
+
+
+def test_files_never_serves_backups(client, local_store):
+    (local_store / "backups").mkdir(parents=True)
+    (local_store / "backups" / "pages-2026-11-02.db").write_bytes(b"db")
+    (local_store / "clips").mkdir(parents=True)
+    (local_store / "clips" / "1.mp4").write_bytes(b"vid")
+    assert client.get("/files/backups/pages-2026-11-02.db").status_code == 404
+    assert client.get("/files/clips/1.mp4").status_code == 200
+
+
+def test_review_lists_problems_from_the_last_week(client, d):
+    add_clip(d, "podcastbawaal", "failed", reason="layer too long")
+    d.execute("insert into source_videos (page, video_id, url, status, note, created_at) values "
+              "('podcastbawaal', 'v9', 'https://www.youtube.com/watch?v=v9', 'skipped', 'not an allowed source', ?)",
+              (datetime.now(UTC).isoformat(),))
+    d.commit()
+    db.event(d, "billikalesh", "insights_failed", "boom 42")
+    db.event(d, "billikalesh", "insights_failed", "boom 42")
+    db.event(d, "billikalesh", "connected", "fine")
+    text = client.get("/").text
+    assert "Problems, last 7 days" in text and "layer too long" in text and "not an allowed source" in text
+    assert text.count("boom 42") == 1 and "(x2)" in text and "connected" not in text
+
+
+def test_link_form_lists_only_clip_pages(client):
+    text = client.get("/").text
+    assert "<option>podcastbawaal</option>" in text and "<option>billikalesh</option>" not in text
+
+
+def test_review_page_works_before_init(client, d):
+    d.execute("delete from pages")
+    d.commit()
+    assert client.get("/").status_code == 200
+
+
+def test_deployed_store_without_access_is_closed(client, monkeypatch):
+    monkeypatch.setenv("PAGES_STORE", "s3://bucket")
+    r = client.get("/")
+    assert r.status_code == 503 and "Access not configured" in r.text
+
+
+def test_cross_site_posts_are_refused(client, d):
+    cid = add_draft(d)
+    r = client.post(f"/clips/{cid}/reject", data={"reason": "x"}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    r = client.post(f"/clips/{cid}/reject", data={"reason": "x"}, headers={"Origin": "http://testserver"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+
+@pytest.mark.parametrize("caption", ["", "   ", "a #b #c #d #e #f #g"])
+def test_approve_refuses_empty_or_hashtag_heavy_captions(client, d, caption):
+    cid = add_draft(d)
+    assert client.post(f"/clips/{cid}/approve", data={"caption": caption}).status_code == 400
+
+
+def test_approve_refuses_a_caption_that_drops_a_credit(client, d):
+    cid = add_draft(d)
+    d.execute("update clips set caption = ? where id = ?", ("Burnout.\n\n🎙️ Video v1 via @podofficial", cid))
+    sid = add_clip(d, "billikalesh", "draft", kind="script", caption="Cats.\n\nFootage: Ann / pexels",
+                   credits=json.dumps([{"credit": "Footage: Ann / pexels", "page_url": "https://pexels.com/v"}]))
+    d.commit()
+    assert client.post(f"/clips/{cid}/approve", data={"caption": "Burnout."}).status_code == 400
+    assert client.post(f"/clips/{sid}/approve", data={"caption": "Cats."}).status_code == 400
+    ok = client.post(f"/clips/{sid}/approve", data={"caption": "Cats!\n\nFootage: Ann / pexels"}, follow_redirects=False)
+    assert ok.status_code == 303
+
+
+def test_script_credits_show_text_and_link(client, d):
+    add_clip(d, "billikalesh", "draft", kind="script",
+             credits=json.dumps([{"credit": "Footage: Ann / pexels", "page_url": "https://pexels.com/v"}]))
+    text = client.get("/").text
+    assert '<a href="https://pexels.com/v">Footage: Ann / pexels</a>' in text and "{&#39;" not in text
 
 
 def test_access_required_when_configured(client, monkeypatch):
