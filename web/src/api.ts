@@ -14,15 +14,29 @@ export type Page = {
   status_checked_at: string | null
   metrics: { reels: number; median_views: number | null; non_follower_share: number | null }
   counts: { draft: number; approved: number; scheduled: number; published: number }
+  reels: Reel[]
   settings: { voice: string; window: [number, number]; daily_target: number; theme: Record<string, string> }
+}
+
+export type Reel = {
+  id: number
+  kind: string
+  status: "approved" | "scheduled" | "published"
+  hook: string | null
+  video_url: string | null
+  cover_url: string | null
+  scheduled_at: string | null
+  published_at: string | null
+  permalink: string | null
 }
 
 export type Draft = {
   id: number
   page: string
-  kind: "clip" | "script"
+  kind: string
   created_at: string | null
   video_url: string | null
+  cover_url: string | null
   hook: string | null
   layer: { intro?: string; takeaway?: string; cards?: { at: number; title: string; body: string }[] } | null
   flags: string[]

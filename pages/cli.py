@@ -27,6 +27,10 @@ def main(argv=None):
     sub.add_parser("connect").add_argument("handle")
     sub.add_parser("verify-ig").add_argument("handle")
     sub.add_parser("covers").add_argument("--ids", type=int, nargs="*")
+    m = sub.add_parser("montage", help="make one montage reel now, as a draft")
+    m.add_argument("--page", required=True)
+    m.add_argument("--type", choices=("visual", "rapidfire"), required=True)
+    m.add_argument("--videos", nargs="*", help="YouTube ids: 1 to 3 Creative Commons videos, or one prepared podcast")
     for name in ("check-aws", "web", "tick", "work", "fetch"):
         sub.add_parser(name)
     args = ap.parse_args(argv)
@@ -59,6 +63,11 @@ def main(argv=None):
     elif args.cmd == "covers":
         from pages.covers import rebuild
         print(json.dumps(rebuild(db, cfg, args.ids)))
+    elif args.cmd == "montage":
+        from pages.montage_pipeline import on_demand
+        clip_id = on_demand(db, cfg, args.page, args.type, args.videos)
+        row = db.execute("select status, reason, file_key from clips where id = ?", (clip_id,)).fetchone()
+        print(json.dumps({"clip": clip_id, **dict(row)}))
     elif args.cmd == "tick":
         from pages.tick import tick
         tick(db, cfg, datetime.now(UTC))

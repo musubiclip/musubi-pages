@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Montage reel</title>
+    <!--__DATA__-->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Bricolage Grotesque"; src: url("fonts/Bricolage.ttf") format("truetype"); font-weight: 200 800; }
+      @font-face { font-family: "Inter"; src: url("fonts/Inter.ttf") format("truetype"); font-weight: 100 900; }
+      @font-face { font-family: "Anton"; src: url("fonts/Anton-Regular.ttf") format("truetype"); font-weight: 400; }
+      :root {
+        --ink: #0a0a0c;
+        --hot: #ff5a1f;
+        --sun: #ffd23f;
+        --paper: #ffffff;
+        --display: "Bricolage Grotesque", sans-serif;
+        --text: Inter, sans-serif;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+      #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; font-family: var(--text); background: var(--ink); }
+
+      #cam, #punch, #fx { position: absolute; inset: 0; transform-origin: 50% 50%; }
+      #bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #vignette { position: absolute; inset: 0; background: radial-gradient(120% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.55) 100%); }
+      #flash { position: absolute; inset: 0; background: var(--paper); opacity: 0; }
+      #tint { position: absolute; inset: 0; background: var(--hot); opacity: 0; mix-blend-mode: screen; }
+      #progress { position: absolute; top: 0; left: 0; right: 0; height: 9px; background: rgba(255, 255, 255, 0.14); }
+      #progress-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--hot), var(--sun)); transform-origin: 0 50%; box-shadow: 0 0 22px rgba(255, 90, 31, 0.9); }
+
+      #headline { position: absolute; inset: 0; }
+      #hl-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 1180px; background: linear-gradient(rgba(10, 10, 12, 0), rgba(10, 10, 12, 0.78) 380px, rgba(10, 10, 12, 0.95)); }
+      #hl-box { position: absolute; left: 64px; right: 64px; bottom: 330px; }
+      #hl-tag { display: flex; align-items: center; gap: 24px; margin-bottom: 30px; }
+      #hl-tag-text { font: 800 36px/1 var(--text); letter-spacing: 0.34em; color: var(--paper); text-transform: uppercase; white-space: nowrap; }
+      #hl-rule { flex: 1; height: 3px; background: var(--hot); transform-origin: 0 50%; }
+      #hl-text { font: 400 160px/1 "Anton", sans-serif; color: var(--paper); text-transform: uppercase; text-shadow: 0 6px 28px rgba(0, 0, 0, 0.45); overflow-wrap: normal; }
+      .hl-w { display: inline-block; }
+      .hl-a0 { color: var(--hot); }
+      .hl-a1 { color: var(--sun); }
+
+      .tb { position: absolute; left: 80px; right: 80px; top: 760px; display: flex; justify-content: center; visibility: hidden; }
+      .tb-box { max-width: 920px; padding: 18px 40px 26px; border-radius: 22px; font: 400 150px/1 "Anton", sans-serif; text-transform: uppercase; text-align: center; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55); }
+      .tb.t0 .tb-box { background: var(--hot); color: var(--paper); transform: rotate(-3deg); }
+      .tb.t1 .tb-box { background: var(--sun); color: var(--ink); transform: rotate(2deg); }
+
+      #caps { position: absolute; inset: 0; }
+      .cg { position: absolute; left: 0; right: 0; bottom: 430px; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 6px 4px; padding: 0 48px; opacity: 0; visibility: hidden; }
+      .cw { position: relative; display: inline-block; padding: 2px 16px 10px; }
+      .cw-bg { position: absolute; inset: 0; background: var(--hot); border-radius: 16px; opacity: 0; }
+      .cw-t { position: relative; display: inline-block; font: 800 82px/1.05 var(--display); color: rgba(255, 255, 255, 0.92); -webkit-text-stroke: 3px rgba(0, 0, 0, 0.85); paint-order: stroke fill; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.9); }
+      #shade { position: absolute; left: 0; right: 0; bottom: 0; height: 900px; background: linear-gradient(transparent, rgba(10, 10, 12, 0.55) 50%, rgba(10, 10, 12, 0.85)); opacity: 0; }
+      #fadeout { position: absolute; inset: 0; background: #000; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="reel" data-start="0" data-duration="__TOTAL__" data-width="1080" data-height="1920">
+      <svg width="0" height="0" style="position: absolute">
+        <filter id="mblur" x="-10%" y="0" width="120%" height="100%"><feGaussianBlur id="mblur-amt" stdDeviation="0 0" /></filter>
+        <filter id="rgb" color-interpolation-filters="sRGB">
+          <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
+          <feOffset id="rgb-r" in="r" dx="0" dy="0" result="ro" />
+          <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g" />
+          <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
+          <feOffset id="rgb-b" in="b" dx="0" dy="0" result="bo" />
+          <feBlend in="ro" in2="g" mode="screen" result="rg" />
+          <feBlend in="rg" in2="bo" mode="screen" />
+        </filter>
+      </svg>
+      <div id="cam">
+        <div id="punch">
+          <div id="fx">
+            <video id="bg" class="clip" src="base.mp4" data-start="0" data-duration="__DURATION__" data-track-index="0" muted playsinline></video>
+          </div>
+        </div>
+      </div>
+      <!--__MUSIC__-->
+      <div id="vignette"></div>
+      <div id="tint"></div>
+      <div id="shade"></div>
+      <div id="caps"></div>
+      <div id="beats"></div>
+      <!--__HEADLINE__-->
+      <div id="flash"></div>
+      <div id="fadeout"></div>
+      <div id="progress"><span id="progress-fill"></span></div>
+    </div>
+
+    <script>
+      const DATA = window.__REEL_DATA__ || {
+        duration: 8, hook: "This robot arm carves marble in 3 hours", hook_accent: ["marble"], brand_tag: "TECH BAWAAL", hook_end: 1.8, beat: 0.45,
+        cuts: [{ t: 1.8, kind: "drop" }, { t: 2.7, kind: "whip" }, { t: 3.6, kind: "glitch" }, { t: 4.95, kind: "zoom" }, { t: 6.3, kind: "flash" }],
+        text_beats: [{ t: 3.6, out: 5.4, text: "10X FASTER" }], words: [], groups: []
+      };
+
+      const D = DATA.duration;
+      const FRAME = 1 / 30;
+      const FONT = "Bricolage Grotesque";
+      const HOOK_END = DATA.hook_end;
+      const B = DATA.beat;
+
+      // a pure function of its input, so a seek to any frame draws the same glitch (no Math.random)
+      function hash(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+      function shake(tl, target, at, power) {
+        tl.to(target, { x: power, y: -power * 0.6, duration: FRAME, ease: "power2.out" }, at);
+        tl.to(target, { x: -power * 0.7, y: power * 0.4, duration: FRAME, ease: "power2.out" }, at + FRAME);
+        tl.to(target, { x: power * 0.4, y: -power * 0.3, duration: FRAME, ease: "power2.out" }, at + FRAME * 2);
+        tl.to(target, { x: 0, y: 0, duration: FRAME, ease: "power2.out" }, at + FRAME * 3);
+      }
+
+      function flash(tl, at, peak, hold) {
+        tl.fromTo("#flash", { opacity: peak }, { opacity: 0, duration: hold, ease: "power2.out", immediateRender: false }, at);
+      }
+
+      function glitch(tl, at, dur, power) {
+        const amp = { a: 0 };
+        tl.set("#fx", { filter: "url(#rgb)", scale: 1.06 }, at);  // the jitter never shows an edge
+        tl.set(amp, { a: 1 }, at);
+        tl.to(amp, {
+          a: 0, duration: dur, ease: "power3.in",
+          onUpdate: () => {
+            const step = Math.floor(tl.time() / (FRAME * 2));
+            const dx = (hash(step * 13) * 0.6 + 0.4) * power * amp.a;
+            document.getElementById("rgb-r").setAttribute("dx", dx.toFixed(1));
+            document.getElementById("rgb-b").setAttribute("dx", (-dx).toFixed(1));
+            gsap.set("#fx", { x: (hash(step * 29) * 2 - 1) * power * 0.8 * amp.a });
+          },
+        }, at);
+        tl.set("#fx", { filter: "none", x: 0, scale: 1 }, at + dur);
+        tl.set("#rgb-r", { attr: { dx: 0 } }, at + dur);
+        tl.set("#rgb-b", { attr: { dx: 0 } }, at + dur);
+      }
+
+      function whip(tl, t, dir) {
+        const into = 0.1, out = 0.18;
+        tl.set("#fx", { filter: "url(#mblur)" }, t - into);
+        tl.to("#punch", { scale: 1.3, duration: into, ease: "power2.in" }, t - into);
+        tl.to("#fx", { x: -dir * 170, duration: into, ease: "power2.in" }, t - into);
+        tl.to("#mblur-amt", { attr: { stdDeviation: "90 0" }, duration: into, ease: "power2.in" }, t - into);
+        tl.fromTo("#fx", { x: dir * 170 }, { x: 0, duration: out, ease: "power3.out", immediateRender: false }, t);
+        tl.to("#mblur-amt", { attr: { stdDeviation: "0 0" }, duration: out, ease: "power3.out" }, t);
+        tl.to("#punch", { scale: 1, duration: out + 0.06, ease: "power3.out" }, t);
+        tl.set("#fx", { filter: "none" }, t + out);
+      }
+
+      function zoom(tl, t, amount) {
+        tl.to("#punch", { scale: 1.22, duration: 0.12, ease: "power2.in" }, t - 0.12);
+        tl.fromTo("#punch", { scale: amount }, { scale: 1, duration: 0.34, ease: "expo.out", immediateRender: false }, t);
+      }
+
+      function zoomblur(tl, t) {
+        // push into a soft blur on the old shot, land the new one sharp out of the same blur
+        tl.to("#punch", { scale: 1.25, filter: "blur(14px)", duration: 0.14, ease: "power2.in" }, t - 0.14);
+        tl.fromTo("#punch", { scale: 1.25, filter: "blur(14px)" }, { scale: 1, filter: "blur(0px)", duration: 0.32, ease: "expo.out", immediateRender: false }, t);
+      }
+
+      function ramp(tl, t) {
+        // the shot's last beat plays at double speed (cut in the base video); push in while it rushes
+        tl.to("#punch", { scale: 1.2, duration: B, ease: "power2.in" }, t - B);
+        tl.fromTo("#tint", { opacity: 0 }, { opacity: 0.22, duration: B, ease: "power2.in", immediateRender: false }, t - B);
+        tl.set("#tint", { opacity: 0 }, t);
+        tl.set("#punch", { scale: 1 }, t);
+        flash(tl, t, 0.45, 0.2);
+      }
+
+      const TRANSITIONS = {
+        drop: (tl, t) => { flash(tl, t, 1, 0.32); zoom(tl, t, 1.45); shake(tl, "#root", t + FRAME, 30); glitch(tl, t + 0.02, 0.22, 26); },
+        whip: (tl, t, i) => whip(tl, t, i % 2 ? 1 : -1),
+        zoom: (tl, t) => zoom(tl, t, 1.35),
+        flash: (tl, t) => { flash(tl, t, 0.92, 0.26); tl.fromTo("#punch", { scale: 1.08 }, { scale: 1, duration: 0.3, ease: "power2.out", immediateRender: false }, t); },
+        glitch: (tl, t) => glitch(tl, t - 0.04, 0.3, 34),
+        shake: (tl, t) => { shake(tl, "#root", t, 24); tl.fromTo("#punch", { scale: 1.12 }, { scale: 1, duration: 0.25, ease: "power3.out", immediateRender: false }, t); },
+        ramp: (tl, t) => ramp(tl, t),
+        zoomblur: (tl, t) => zoomblur(tl, t),
+        glitchzoom: (tl, t) => { glitch(tl, t - 0.03, 0.18, 22); zoom(tl, t, 1.18); },
+      };
+
+      function buildHeadline(tl) {
+        const text = document.getElementById("hl-text");
+        if (!text) return;
+        for (let size = 200; size >= 72; size -= 4) {
+          text.style.fontSize = size + "px";
+          if (text.offsetHeight <= size * 4.2 && text.scrollWidth <= text.clientWidth) break;
+        }
+        document.getElementById("hl-shade").style.height = 1920 - document.getElementById("hl-box").offsetTop + 380 + "px";
+        tl.fromTo("#hl-shade", { opacity: 0 }, { opacity: 1, duration: 0.18, ease: "power2.out" }, 0);
+        tl.fromTo("#cam", { scale: 1.14 }, { scale: 1.04, duration: 0.5, ease: "expo.out" }, 0);
+        if (document.getElementById("hl-tag")) {
+          tl.fromTo("#hl-tag-text", { x: -40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.2, ease: "power3.out" }, 0);
+          tl.fromTo("#hl-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.26, ease: "power4.out" }, 0.03);
+        }
+        tl.fromTo(".hl-w", { yPercent: 55, opacity: 0, scale: 1.08 }, { yPercent: 0, opacity: 1, scale: 1, duration: 0.18, ease: "power3.out", stagger: { amount: 0.1 } }, 0.02);
+        const out = HOOK_END - 0.16;
+        tl.to("#hl-box", { y: 70, opacity: 0, duration: 0.14, ease: "power3.in" }, out);
+        tl.to("#hl-shade", { opacity: 0, duration: 0.16, ease: "power2.in" }, out);
+        tl.to("#cam", { scale: 1.0, duration: 0.16, ease: "power2.in" }, out);
+        tl.set("#headline", { visibility: "hidden" }, HOOK_END);
+      }
+
+      function buildBeats(tl) {
+        const host = document.getElementById("beats");
+        (DATA.text_beats || []).forEach((b, i) => {
+          const el = document.createElement("div");
+          el.className = "tb t" + (i % 2);
+          el.innerHTML = '<div class="tb-box"></div>';
+          el.firstChild.textContent = b.text;
+          host.appendChild(el);
+          const box = el.firstChild;
+          for (let size = 150; size > 70; size -= 6) { box.style.fontSize = size + "px"; if (box.offsetHeight <= size * 2.4) break; }  // at most two lines
+          tl.set(el, { visibility: "visible" }, b.t);
+          tl.fromTo(el, { scale: 2.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.16, ease: "expo.out" }, b.t);
+          tl.fromTo(el, { rotation: i % 2 ? -6 : 6 }, { rotation: 0, duration: 0.3, ease: "back.out(3)" }, b.t);
+          tl.to(el, { scale: 1.06, duration: B / 2, ease: "sine.inOut", yoyo: true, repeat: 1 }, b.t + B);
+          tl.to(el, { scale: 0.7, opacity: 0, duration: 0.1, ease: "power3.in" }, b.out - 0.1);
+          tl.set(el, { visibility: "hidden" }, b.out);
+        });
+      }
+
+      function buildCaptions(tl) {
+        const caps = document.getElementById("caps");
+        if ((DATA.groups || []).length) tl.fromTo("#shade", { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "power2.out" }, HOOK_END);
+        (DATA.groups || []).forEach(([a, b], gi) => {
+          const words = DATA.words.slice(a, b + 1);
+          const next = DATA.groups[gi + 1];
+          const start = Math.max(words[0].s, HOOK_END);
+          const end = Math.min(words[words.length - 1].e + 0.5, next ? DATA.words[next[0]].s - 0.04 : D, D);
+          if (end <= start + 0.25) return;
+          const group = document.createElement("div");
+          group.className = "cg";
+          words.forEach((w, i) => {
+            const box = document.createElement("span");
+            box.className = "cw";
+            box.innerHTML = '<span class="cw-bg"></span><span class="cw-t"></span>';
+            box.lastChild.textContent = w.t;
+            group.appendChild(box);
+            if (w.s < start) return;
+            const until = Math.min(i + 1 < words.length ? words[i + 1].s : w.e + 0.2, w.s + 0.7, end);
+            tl.fromTo(box.firstChild, { opacity: 0, scaleX: 0.3 }, { opacity: 1, scaleX: 1, duration: 0.1, ease: "power3.out" }, w.s);
+            tl.to(box.lastChild, { color: "#ffffff", duration: 0.04 }, w.s);
+            tl.fromTo(box.lastChild, { scale: 1 }, { scale: 1.08, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1 }, w.s);
+            tl.to(box.firstChild, { opacity: 0, duration: 0.08 }, until);
+          });
+          caps.appendChild(group);
+          tl.set(group, { visibility: "visible" }, start);
+          tl.fromTo(group, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.14, ease: "power3.out" }, start);
+          tl.to(group, { opacity: 0, duration: 0.1, ease: "power2.in" }, end - 0.1);
+          tl.set(group, { visibility: "hidden" }, end);
+        });
+      }
+
+      function build() {
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo("#progress-fill", { scaleX: 0 }, { scaleX: 1, duration: D, ease: "none" }, 0);
+        buildHeadline(tl);
+        DATA.cuts.forEach((c, i) => TRANSITIONS[c.kind](tl, c.t, i));
+        buildBeats(tl);
+        buildCaptions(tl);
+        const [easeIn, easeOut] = DATA.ease || [0, 0.3];
+        if (easeIn) tl.fromTo("#fadeout", { opacity: 1 }, { opacity: 0, duration: easeIn, ease: "power1.out", immediateRender: false }, 0);
+        tl.fromTo("#fadeout", { opacity: 0 }, { opacity: 1, duration: easeOut, ease: "power1.in", immediateRender: false }, Math.max(0, D - easeOut));
+        tl.seek(0);
+        window.__timelines["reel"] = tl;
+      }
+
+      window.__timelines = window.__timelines || {};
+      Promise.all([document.fonts.load('800 80px "' + FONT + '"'), document.fonts.load('800 30px "Inter"'), document.fonts.load('400 80px "Anton"')]).then(build, build);
+    </script>
+  </body>
+</html>

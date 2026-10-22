@@ -1,8 +1,8 @@
 import { useId, useState, type ReactNode } from "react"
-import { KeyRound, Link2, Pause, Play } from "lucide-react"
+import { ExternalLink, Film, KeyRound, Link2, Pause, Play } from "lucide-react"
 import { toast } from "sonner"
 
-import { day, hour, post, when, type Page } from "@/api"
+import { day, hour, post, when, type Page, type Reel } from "@/api"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -122,8 +122,98 @@ export function PageView({ page: p, refresh }: { page: Page; refresh: Refresh })
             </dl>
           </Card>
         </div>
+
+        <Reels reels={p.reels} handle={p.handle} />
       </div>
     </>
+  )
+}
+
+const TABS = [["scheduled", "Scheduled"], ["approved", "Approved"], ["published", "Published"]] as const
+const KIND: Record<string, string> = { montage: "Montage", rapidfire: "Rapid fire", script: "Script reel" }
+
+function Reels({ reels, handle }: { reels: Reel[]; handle: string }) {
+  const [tab, setTab] = useState<Reel["status"]>(reels.some((r) => r.status === "scheduled") ? "scheduled" : "published")
+  const shown = reels.filter((r) => r.status === tab)
+    .sort((a, b) => tab === "scheduled" ? (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "") : 0)
+  return (
+    <Card className="gap-4">
+      <CardHead title="Reels" aside={
+        <div role="tablist" aria-label="Reel status" className="inline-flex rounded-[10px] border bg-muted p-0.5">
+          {TABS.map(([k, label]) => {
+            const n = reels.filter((r) => r.status === k).length
+            return (
+              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+                className={`rounded-[8px] px-3 py-1.5 text-sm font-medium transition-all duration-200 ${tab === k
+                  ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                {label} <span className="tnum text-muted-foreground">{n}</span>
+              </button>
+            )
+          })}
+        </div>
+      } />
+      {shown.length === 0 ? (
+        <p className="px-5 pb-1 text-sm text-muted-foreground max-sm:px-4">No {tab} reels for @{handle} yet.</p>
+      ) : (
+        <ul key={tab} className="grid animate-in grid-cols-2 gap-3 px-5 fade-in duration-300 max-sm:px-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+          {shown.map((r) => <ReelTile key={r.id} r={r} />)}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+function ReelTile({ r }: { r: Reel }) {
+  const at = r.status === "published" ? r.published_at : r.status === "scheduled" ? r.scheduled_at : null
+  return (
+    <li>
+      <Dialog>
+        <DialogTrigger asChild>
+          <button className="group flex w-full flex-col gap-2 text-left focus-visible:outline-none">
+            <span className="relative block aspect-[9/16] w-full overflow-hidden rounded-[10px] border bg-muted shadow-sm transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
+              {r.cover_url ? (
+                <img src={r.cover_url} alt="" loading="lazy" decoding="async"
+                  className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+              ) : (
+                <span className="grid size-full place-items-center text-muted-foreground"><Film aria-hidden="true" /></span>
+              )}
+              <span className="absolute inset-0 grid place-items-center bg-foreground/0 transition-colors duration-300 group-hover:bg-foreground/20">
+                <Play aria-hidden="true" className="size-9 rounded-full bg-card/90 p-2 opacity-0 shadow transition-opacity duration-300 group-hover:opacity-100" />
+              </span>
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="line-clamp-2 text-sm leading-snug font-medium">{r.hook || `Reel #${r.id}`}</span>
+              <span className="text-xs text-muted-foreground">
+                {KIND[r.kind] ?? "Clip"}{at && ` · ${r.status === "published" ? "posted" : "posts"} ${when(at)}`}
+              </span>
+            </span>
+          </button>
+        </DialogTrigger>
+        <DialogContent className="max-w-[min(92vw,26rem)] gap-4">
+          <DialogHeader>
+            <DialogTitle className="leading-snug">{r.hook || `Reel #${r.id}`}</DialogTitle>
+            <DialogDescription>
+              {KIND[r.kind] ?? "Clip"} #{r.id}{at && `, ${r.status === "published" ? "posted" : "posts"} ${when(at)} IST`}
+            </DialogDescription>
+          </DialogHeader>
+          {r.video_url ? (
+            <video src={r.video_url} poster={r.cover_url ?? undefined} controls autoPlay playsInline
+              className="aspect-[9/16] max-h-[70vh] w-full rounded-[10px] bg-foreground object-contain" />
+          ) : <p className="text-sm text-muted-foreground">No video file.</p>}
+          <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
+            {r.cover_url && (
+              <Button variant="outline" asChild><a href={r.cover_url} target="_blank" rel="noreferrer">Open cover</a></Button>
+            )}
+            {r.permalink && (
+              <Button variant="outline" asChild>
+                <a href={r.permalink} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" /> On Instagram</a>
+              </Button>
+            )}
+            <DialogClose asChild><Button variant="ghost">Close</Button></DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </li>
   )
 }
 

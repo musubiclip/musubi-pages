@@ -69,7 +69,7 @@ function DraftCard({ d, act }: { d: Draft; act: Act }) {
       <article aria-labelledby={`${id}-hook`} className="grid gap-5 p-4 sm:p-5 md:grid-cols-[270px_minmax(0,1fr)] md:gap-7">
         <div className="md:sticky md:top-5 md:self-start">
           {d.video_url ? (
-            <video src={d.video_url} controls preload="metadata" playsInline
+            <video src={d.video_url} poster={d.cover_url ?? undefined} controls preload="metadata" playsInline
               aria-label={`Reel for @${d.page}: ${d.hook ?? "no hook"}`}
               className="aspect-[9/16] w-full rounded-[10px] bg-foreground object-cover" />
           ) : (
@@ -77,12 +77,20 @@ function DraftCard({ d, act }: { d: Draft; act: Act }) {
               <span className="flex flex-col items-center gap-2 text-sm"><VideoOff aria-hidden="true" /> No video file</span>
             </div>
           )}
+          {d.cover_url && (
+            <figure className="mt-3 flex items-center gap-3">
+              <a href={d.cover_url} target="_blank" rel="noreferrer" className="shrink-0">
+                <img src={d.cover_url} alt={`Cover for reel #${d.id}`} className="aspect-[9/16] w-20 rounded-[8px] border object-cover" />
+              </a>
+              <figcaption className="text-xs text-muted-foreground">Cover<br />shown on the grid and sent to Instagram</figcaption>
+            </figure>
+          )}
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="plain">{d.kind === "script" ? "Script reel" : "Clip"}</Badge>
+              <Badge variant="plain">{({ script: "Script reel", montage: "Montage", rapidfire: "Rapid fire" } as Record<string, string>)[d.kind] ?? "Clip"}</Badge>
               <span className="tnum">#{d.id}</span>
               {d.created_at && <span>· made {when(d.created_at)}</span>}
             </div>

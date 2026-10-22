@@ -13,6 +13,7 @@ Musubi will run 27 niche Instagram pages with Hinglish handles and grow them wit
 - Sign up emails. `musubi.si` is on Cloudflare (account of developer@musubiclip.com). Email Routing forwards `<username>@musubi.si` for all 27 usernames to the Google Group **pages@musubiclip.com** (owners: developer@ and prateek@; invite only; accepts outside mail). Catch-all is off. A new address is one more routing rule.
 - **tech_bawaal** (was billikalesh, renamed 22 Oct 2026) is the tech and AI clips page and the second pilot page. Name "Tech Bawaal", chip avatar in `assets/pages/tech_bawaal/avatar.jpg` (the old avatar stays in `assets/pages/billikalesh/`). It's connected to the "Musubi Pages" Meta app (app id 1488230259790933) as an Instagram tester, Instagram user id 17841424018966348.
 - The design is written (`design.md`), with a builder check pending (see "Open" below).
+- Montage reels (`engine/montage.py`, `pages/montage_pipeline.py`): beat-synced fast cuts to the trap beds, kind `montage` (Creative Commons shots, music up front) and kind `rapidfire` (4 to 6 podcast one-liners, captions, the bed under the voices). A page's `formats` weights mix them with clips; `pages montage --page tech_bawaal --type visual|rapidfire [--videos ID ...]` makes one as a draft.
 
 **In progress (Prateek, by hand)**
 - Two factor login on tech_bawaal (authenticator app; key and backup codes saved in Bitwarden).
