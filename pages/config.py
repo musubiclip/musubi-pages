@@ -22,7 +22,7 @@ class Page:
     topics: str = ""
     sfx: bool = True  # sound effects on the hook, cards and cuts (clip pages)
     active: bool = True
-    queries: list[str] = field(default_factory=list)  # YouTube searches for the animals pipeline
+    queries: list[str] = field(default_factory=list)  # Creative Commons YouTube searches: any page with these gets visual reels
 
 
 @dataclass

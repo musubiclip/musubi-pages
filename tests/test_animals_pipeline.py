@@ -251,12 +251,55 @@ def test_cli_work_runs_the_animals_step(monkeypatch, tmp_path):
 def test_reupload_titles_are_skipped():
     for t in ["TRY NOT TO LAUGH at These Funny Cats", "Cat Compilation 2026", "Funny Moments part 3", "Best of TikTok cats"]:
         assert ap.REUPLOAD.search(t), t
-    for t in ["My cat Luna meets a cucumber", "Kitten plays with a ball of yarn"]:
+    for t in ["Satisfying Compilation of machines", "Amazing Machines Compilation", "Top 10 robots"]:
+        assert ap.REUPLOAD.search(t), t
+    for t in ["My cat Luna meets a cucumber", "Kitten plays with a ball of yarn", "How a CNC lathe cuts steel"]:
         assert not ap.REUPLOAD.search(t), t
 
 
 def test_pick_prompt_skips_watermarks():
     assert "watermark" in ap.PICK_RULES and "another creator" in ap.PICK_RULES
+
+
+def test_pick_prompt_is_page_neutral(cfg, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "ask", lambda prompt, schema, images=None: (seen.update(prompt=prompt), ap.Moments(moments=[]))[1])
+    page = cfg.pages["tech_bawaal"]
+    page.topics = "gadgets and engineering explainers"
+    ap.pick_moments(page, INFO, 120, [], [], 2)
+    assert "@tech_bawaal" in seen["prompt"] and "gadgets and engineering explainers" in seen["prompt"]
+    assert "cats" not in ap.PICK_RULES and "animal videos" not in ap.PICK_RULES
+    assert "This is what happens when" in ap.PICK_RULES and "mechanism" in ap.PICK_RULES and "If animals appear" in ap.PICK_RULES
+
+
+def test_any_page_with_queries_gets_jobs_whatever_its_pipeline(d, local_store):
+    c = config.load()
+    assert c.pages["tech_bawaal"].pipeline == "clips" and c.pages["tech_bawaal"].queries
+    for p in c.pages.values():
+        if p.handle != "tech_bawaal":
+            p.queries = []
+    ap.write_jobs(d, c)
+    assert [j["page"] for j in store.get_json("jobs/animals.json")] == ["tech_bawaal"]
+    c.pages["tech_bawaal"].queries = []
+    ap.write_jobs(d, c)
+    assert store.get_json("jobs/animals.json") == []
+
+
+def test_visual_clips_stay_under_half_the_queue(d, cfg, local_store):
+    d.execute("insert into source_videos (source_id, page, video_id, url, title, status) values "
+              "('cc_youtube', 'tech_bawaal', 'v1', 'u', 't', 'cut')")
+    d.commit()
+    for _ in range(3):
+        add_clip(d, "tech_bawaal", "draft")  # podcast clips
+    ap.write_jobs(d, cfg)
+    assert len(store.get_json("jobs/animals.json")) == 1
+    for _ in range(4):  # 4 >= 7 / 2
+        d.execute("insert into clips (page, video_id, kind, status) values ('tech_bawaal', 'v1', 'clip', 'draft')")
+    d.execute("delete from clips where video_id != 'v1'")
+    d.commit()
+    assert ap.visual_queued(d, "tech_bawaal") == 4
+    ap.write_jobs(d, cfg)
+    assert store.get_json("jobs/animals.json") == []
 
 
 def test_short_videos_give_one_clip():
