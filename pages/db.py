@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ create table if not exists events (
 );
 """
 
-QUEUE_LOW = 7
+QUEUE_LOW = int(os.environ.get("PAGES_QUEUE_LOW", 7))  # raise for a one-off batch run
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
