@@ -100,7 +100,7 @@ def test_fetch_keeps_the_first_unused_cc_video_of_sane_length(local_store, monke
     assert ap.fetch_animals({"page": "billikalesh", "query": "funny cat", "skip": ["used"]}) is True
     down = [c for c in calls if "-J" not in c]
     assert len(down) == 1 and down[0][-1] == "https://youtu.be/ok" and "--ignore-errors" in calls[0]
-    assert down[0][down[0].index("-f") + 1] == f"{clipper.VIDEO_FORMAT}/b[height<=1080]"
+    assert down[0][down[0].index("-f") + 1] == ap.AV_FORMAT and "+ba" in ap.AV_FORMAT
     assert store.exists("work/ok/source.mp4")
     assert store.get_json("work/ok/source-audio.info.json")["license"] == INFO["license"]
     assert store.get_json("inbox/animals/ok.json") == {"page": "billikalesh", "video_id": "ok", "url": "https://youtu.be/ok",

@@ -68,6 +68,10 @@ def take_inbox(db, cfg) -> None:
     db.commit()
 
 
+# video (h264 ≤1080p first) merged with its audio; a video only stream would leave the clip silent
+AV_FORMAT = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]"
+
+
 def fetch_animals(job: dict) -> bool:
     """Mac side: find one Creative Commons animal video, download it whole, upload it with its info."""
     if store.keys("inbox/animals/"):  # the server has not taken the last result yet
@@ -80,7 +84,7 @@ def fetch_animals(job: dict) -> bool:
         workdir.mkdir(parents=True, exist_ok=True)
         out = workdir / "source.mp4"
         out.unlink(missing_ok=True)
-        r = subprocess.run(["yt-dlp", "-f", f"{clipper.VIDEO_FORMAT}/b[height<=1080]", "--no-playlist",
+        r = subprocess.run(["yt-dlp", "-f", AV_FORMAT, "--no-playlist",
                             "--merge-output-format", "mp4", "-o", str(out), e["webpage_url"]],
                            capture_output=True, text=True)
         if r.returncode or not out.exists() or _video_seconds(out) < 0.9 * e["duration"]:
