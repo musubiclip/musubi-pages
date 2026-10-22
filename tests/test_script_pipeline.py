@@ -131,7 +131,7 @@ def clip(d, i):
 @pytest.fixture
 def cfg():
     c = config.load()
-    c.pages["billikalesh"].active = True  # paused in pages.toml; these tests run it
+    c.pages["billikalesh"].pipeline = "script"  # billikalesh runs animals now; these tests run a script page
     return c
 
 

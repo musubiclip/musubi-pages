@@ -62,12 +62,16 @@ def sections(job) -> bool:
 
 def run_jobs() -> dict:
     jobs = store.get_json("jobs/fetch.json", {})
-    done = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "failed": 0}
+    done = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "animals": 0, "failed": 0}
     cc = store.get_json("jobs/cc.json", [])
     if cc:
         from pages.script_pipeline import fetch_cc
+    animals = store.get_json("jobs/animals.json", [])
+    if animals:
+        from pages.animals_pipeline import fetch_animals
     work = [("watch", watch, jobs.get("watch", [])), ("prepare", prepare, jobs.get("prepare", [])),
-            ("sections", sections, jobs.get("sections", [])), ("cc", lambda j: fetch_cc(j) or True, cc)]
+            ("sections", sections, jobs.get("sections", [])), ("cc", lambda j: fetch_cc(j) or True, cc),
+            ("animals", lambda j: fetch_animals(j), animals)]
     for kind, fn, items in work:
         for job in items:
             # One bad job must not block the rest: it stays queued and would fail first every run.

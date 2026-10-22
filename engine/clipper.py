@@ -343,6 +343,8 @@ def card(clip, key):
 
 
 def snap(t, words, edge):
+    if not words:  # no speech (animal clips): keep the time as picked
+        return t
     if edge == "end":
         whole = [w for w in words if w["word"][-1:] in ".?!\u0964"]
     else:
@@ -353,6 +355,8 @@ def snap(t, words, edge):
 
 def breathe(start, end, words, lead, tail):
     """Pad a cut so it never clips a syllable, stopping short of the neighbouring words."""
+    if not words:
+        return start, end
     before = [w for w in words if w["start"] < start - 0.01]
     after = [w for w in words if w["start"] > end - 0.01]
     floor = before[-1]["start"] + 0.4 if before else 0.0

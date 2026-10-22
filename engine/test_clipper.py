@@ -287,3 +287,25 @@ def test_a_section_must_reach_back_over_the_pre_roll(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="too early for a 4.0s intro"):
         clipper.render_one(tmp_path, {**MOMENT_30S, "start": 3.0, "end": 30.0}, tmp_path / "r.mp4",
                            intro={"audio": tmp_path / "vo.mp3", "seconds": 4.0})
+
+
+def test_no_words_keeps_the_moment_as_given_and_has_no_captions():
+    clip = tidy_clips([{**MOMENT_30S, "start": 2.0, "end": 19.5}], [], 1)[0]
+    assert (clip["start"], clip["end"]) == (2.0, 19.5)
+    data = clipper.reel_data(clip, [], duration=17.5)
+    assert data["words"] == [] and data["groups"] == []
+
+
+@pytest.mark.slow
+def test_render_one_without_words_renders_the_whole_moment(tmp_path, monkeypatch):
+    import subprocess
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=20",
+                    "-f", "lavfi", "-i", "sine=frequency=220:duration=20", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(tmp_path / "source.mp4")], check=True)
+    (tmp_path / "transcript.json").write_text(json.dumps({"language": "en", "source": "none", "segments": []}))
+    (tmp_path / "meta.json").write_text(json.dumps({"title": "cat", "url": "", "path": str(tmp_path / "source.mp4"),
+                                                    "language": "en"}))
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    moment = {**MOMENT_30S, "start": 2.0, "end": 18.0, "cards": [{"at": 6.0, "title": "Why", "body": "Cats knead", "hold": 4}]}
+    out = clipper.render_one(tmp_path, moment, tmp_path / "out" / "r.mp4", theme=THEME)
+    assert clipper.probe_size(out) == (1080, 1920) and 15 < clipper.duration_of(out) < 17

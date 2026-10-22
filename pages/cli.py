@@ -59,6 +59,7 @@ def main(argv=None):
         from pages.tick import tick
         tick(db, cfg, datetime.now(UTC))
     elif args.cmd == "work":
-        from pages import clips_pipeline, script_pipeline
+        from pages import animals_pipeline, clips_pipeline, script_pipeline
         clips_pipeline.step(db, cfg)
         script_pipeline.step(db, cfg)
+        animals_pipeline.step(db, cfg)
