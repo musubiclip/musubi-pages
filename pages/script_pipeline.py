@@ -155,24 +155,33 @@ def _finish(db, page, clip_id: int) -> None:
     """Render a waiting reel once all its footage is in; leave it waiting otherwise."""
     data = json.loads(db.execute("select script from clips where id = ?", (clip_id,)).fetchone()[0])
     shots = data["shots"]
-    for s in shots:
-        if s["provider"] == "cc" and store.exists(f"footage/cc/{s['id']}.none"):
-            raise ValueError(f"no footage for {s['query']}")
-    if not all(store.exists(f"footage/cc/{s['id']}.mp4") for s in shots if s["provider"] == "cc"):
+    have = [s["provider"] != "cc" or store.exists(f"footage/cc/{s['id']}.mp4") for s in shots]
+    none = [s["provider"] == "cc" and store.exists(f"footage/cc/{s['id']}.none") for s in shots]
+    if not all(h or n for h, n in zip(have, none)):
         return
+    if not any(have):
+        raise ValueError("no footage for any beat")
+    # a beat with no CC match reuses the nearest beat with footage: previous first, else next
+    n = len(shots)
+    shots = [shots[next(j for j in [*range(i, -1, -1), *range(i + 1, n)] if have[j])] for i in range(n)]
     script = writing.Script(**{k: data[k] for k in writing.Script.model_fields})
     words, seconds = data["words"], data["seconds"]
     tmp = config.HOME / "tmp" / f"script-{clip_id}"
     mp3 = store.get(f"work/script-{clip_id}/voice.mp3", tmp / "voice.mp3")
     paths, credits = [], []
+    got = {}  # shot id -> local path; a reused shot is fetched and credited once
     for i, s in enumerate(shots):
+        if s["id"] in got:
+            paths.append(got[s["id"]])
+            continue
         if s["provider"] == "cc":
-            paths.append(store.get(f"footage/cc/{s['id']}.mp4", tmp / f"shot-{i}.mp4"))
+            got[s["id"]] = store.get(f"footage/cc/{s['id']}.mp4", tmp / f"shot-{i}.mp4")
             info = store.get_json(f"footage/cc/{s['id']}.json")
             credits.append({**s, **info, "credit": f"Footage: {info['author']} (CC BY) {info['page_url']}"})
         else:
-            paths.append(_download(s["download_url"], tmp / f"shot-{i}.mp4"))
+            got[s["id"]] = _download(s["download_url"], tmp / f"shot-{i}.mp4")
             credits.append({**s, "credit": f"Footage: {s['author']} / {s['provider']}"})
+        paths.append(got[s["id"]])
     video = montage(paths, beat_spans(words, script.beats), mp3, tmp / "montage.mp4")
 
     workdir = config.HOME / "work" / f"script-{clip_id}"
@@ -234,16 +243,27 @@ def step(db, cfg) -> None:
     store.put_json("jobs/cc.json", _cc_jobs(db))
 
 
+def _cc_search(query: str, seconds: float) -> dict | None:
+    url = CC_SEARCH.format(urllib.parse.quote_plus(query))
+    # --ignore-errors skips age-restricted/unavailable results; yt-dlp then exits 1 but still prints the JSON
+    r = subprocess.run(["yt-dlp", "-J", "--ignore-errors", "--playlist-end", "10", url], capture_output=True, text=True)
+    try:
+        found = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"yt-dlp search failed ({r.returncode}): {r.stderr.strip()[-300:]}") from None
+    return next((e for e in found.get("entries") or [] if e and "Creative Commons" in (e.get("license") or "")
+                 and (e.get("duration") or 0) >= seconds + 4), None)
+
+
 def fetch_cc(job: dict) -> bool:
     """Mac side: find a Creative Commons YouTube video for one beat and upload its middle section."""
     key, seconds = job["key"], float(job["seconds"])
-    url = CC_SEARCH.format(urllib.parse.quote_plus(job["query"]))
-    found = json.loads(subprocess.run(["yt-dlp", "-J", "--playlist-end", "10", url],
-                                      capture_output=True, text=True, check=True).stdout)
-    for e in found.get("entries") or []:
-        if "Creative Commons" in (e.get("license") or "") and (e.get("duration") or 0) >= seconds + 4:
+    e = None
+    for query in dict.fromkeys([job["query"], " ".join(job["query"].split()[:2])]):  # full, then simpler
+        e = _cc_search(query, seconds)
+        if e:
             break
-    else:
+    if not e:
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "none").write_text("")
             store.put(f"footage/cc/{key}.none", Path(tmp) / "none")
