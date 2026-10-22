@@ -5,7 +5,6 @@ No speech, so no transcript: Claude looks at frames. The reel gets a hook, 1 to 
 import json
 import re
 import os
-import random
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -220,10 +219,7 @@ def cut(db, cfg, row) -> None:
                              (page.handle, vid, m.start, m.end, json.dumps(moment, ensure_ascii=False), _now())).lastrowid
         db.commit()
         try:
-            music = None
-            if page.music:
-                key = random.choice(page.music)
-                music = store.get(key, config.HOME / "tmp" / key)
+            music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip_id}.mp4"
             clipper.render_one(workdir, {**moment, "cards": [{**c, "hold": 4} for c in moment["cards"]]}, out,
                                theme=page.theme, intro=None, outro=None, music=music)

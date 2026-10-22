@@ -179,9 +179,9 @@ def test_music_spans_reads_caption_tags():
 def test_pick_drops_music_short_and_broken_moments(d, cfg_with_podcast, prepared_video, monkeypatch):
     asked = {}
 
-    def fake_pick(transcript, title, want):
+    def fake_pick(transcript, title, want, topics=""):
         asked.update(transcript=transcript, title=title, want=want)
-        return [M(100, 150), M(10, 40), M(300, 310), M(400, 470, hook=None)]
+        return [M(100, 125), M(10, 30), M(300, 310), M(400, 425, hook=None), M(500, 560)]
     monkeypatch.setattr(writing, "pick_moments", fake_pick)
     clips_pipeline.pick(d, cfg_with_podcast, prepared_video)
     assert asked["want"] == 3 and asked["title"] == "Video vid1" and "w100" in asked["transcript"]
@@ -194,14 +194,14 @@ def test_pick_drops_music_short_and_broken_moments(d, cfg_with_podcast, prepared
 
 
 def test_pick_with_nothing_usable_skips_the_video(d, cfg_with_podcast, prepared_video, monkeypatch):
-    monkeypatch.setattr(writing, "pick_moments", lambda *a: [M(10, 40)])
+    monkeypatch.setattr(writing, "pick_moments", lambda *a, **k: [M(10, 30)])
     clips_pipeline.pick(d, cfg_with_podcast, prepared_video)
     assert tuple(status(d, "vid1")) == ("skipped", "no usable moments")
     assert d.execute("select count(*) from clips").fetchone()[0] == 0
 
 
 def test_hindi_video_gets_english_lines(d, cfg_with_podcast, prepared_hindi_video, monkeypatch):
-    monkeypatch.setattr(writing, "pick_moments", lambda *a: [M(100, 150)])
+    monkeypatch.setattr(writing, "pick_moments", lambda *a, **k: [M(100, 125)])
     seen = []
 
     def fake_translate(sentences):
@@ -233,6 +233,7 @@ def patch_render(monkeypatch):
     monkeypatch.setattr(writing, "write_layer", fake_layer)
     monkeypatch.setattr(voice, "speak", fake_speak)
     monkeypatch.setattr(clipper, "render_one", fake_render)
+    monkeypatch.setattr(clipper, "speaker_share", lambda workdir, m: 1.0)
     return calls
 
 
@@ -285,7 +286,7 @@ def test_inactive_page_gets_no_jobs_and_no_pick(d, cfg_with_podcast, prepared_vi
 # --- step ---
 
 def test_step_fails_a_video_whose_pick_breaks(d, cfg_with_podcast, prepared_video, monkeypatch):
-    def broken(*a):
+    def broken(*a, **k):
         raise RuntimeError("claude said no")
     monkeypatch.setattr(writing, "pick_moments", broken)
     clips_pipeline.step(d, cfg_with_podcast)
@@ -323,3 +324,73 @@ def test_a_full_queue_picks_and_prepares_nothing(d, cfg_with_podcast, prepared_v
     clips_pipeline.step(d, cfg_with_podcast)
     assert store.get_json("jobs/fetch.json")["prepare"] == []
     assert status(d, "vid1")["status"] == "prepared"
+
+
+# --- hooks, cold opens, pacing, the 30 s cap, speakers, sound ---
+
+def picked(d, cfg, row, monkeypatch, *moments):
+    monkeypatch.setattr(writing, "pick_moments", lambda *a, **k: list(moments))
+    clips_pipeline.pick(d, cfg, row)
+    return [json.loads(r["moment"]) for r in d.execute("select moment from clips order by start")]
+
+
+def test_pick_asks_with_the_page_topics(d, cfg_with_podcast, prepared_video, monkeypatch):
+    asked = {}
+    monkeypatch.setattr(writing, "pick_moments", lambda *a, **k: asked.update(k) or [])
+    clips_pipeline.pick(d, cfg_with_podcast, prepared_video)
+    assert asked["topics"] == writing._topics(cfg_with_podcast.pages["podcastbawaal"])
+
+
+def test_cold_open_is_kept_only_inside_the_moment_and_2_to_5_seconds(d, cfg_with_podcast, prepared_video, monkeypatch):
+    ok, outside, too_long = picked(d, cfg_with_podcast, prepared_video, monkeypatch,
+                                   M(100, 125, cold_open_start=110.0, cold_open_end=113.8),
+                                   M(200, 225, cold_open_start=230.0, cold_open_end=233.8),
+                                   M(300, 325, cold_open_start=305.0, cold_open_end=312.0))
+    assert ok["cold_open"] and 109 <= ok["cold_open"][0] < ok["cold_open"][1] <= 125
+    assert outside["cold_open"] is None and outside["cold_open_start"] is None
+    assert too_long["cold_open"] is None
+
+
+def test_the_strongest_short_hook_wins(d, cfg_with_podcast, prepared_video, monkeypatch):
+    candidates = [writing.HookCandidate(text=t, score=s) for t, s in (
+        ("Founders burn out", 2), ("Why 9 in 10 founders quit", 5), ("This one is far too long to fit on the screen", 5))]
+    parts = writing.HookParts(kicker="Founders", big="", punch="burn out")
+    (m,) = picked(d, cfg_with_podcast, prepared_video, monkeypatch,
+                  M(100, 125, hook_candidates=candidates, hook_parts=parts))
+    assert m["hook_text"] == "Why 9 in 10 founders quit" and m["hook_parts"] is None
+    assert picked(d, cfg_with_podcast, prepared_video, monkeypatch,
+                  M(200, 225, hook_text="A hook that runs on for well over eight words")) == [m]
+
+
+def test_pick_caps_clips_at_30_seconds_as_played(d, cfg_with_podcast, prepared_video, monkeypatch):
+    kept = picked(d, cfg_with_podcast, prepared_video, monkeypatch, M(100, 136), M(200, 213), M(300, 340))
+    assert len(kept) == 1 and kept[0]["max_seconds"] == 30
+    assert 15 <= clipper.played_seconds(kept[0]) <= 30 and kept[0]["end"] < 131
+
+
+def test_pick_trims_pauses_inside_a_moment(d, local_store, cfg_with_podcast, monkeypatch):
+    transcript = long_transcript()
+    for seg in transcript["segments"]:
+        seg["words"] = [w for w in seg["words"] if w["start"] not in (111.0, 112.0)]
+    put_prepared(local_store, "vid5", POD_INFO, transcript=transcript)
+    (m,) = picked(d, cfg_with_podcast, add_video(d, "vid5", "prepared"), monkeypatch, M(100, 125))
+    assert m["skip"] == [[110.95, 112.85]]
+
+
+def test_a_moment_with_no_speaker_on_screen_fails(d, cfg_with_podcast, fetched_video, monkeypatch):
+    calls = patch_render(monkeypatch)
+    monkeypatch.setattr(clipper, "speaker_share", lambda workdir, m: 0.5)
+    clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
+    clip = d.execute("select status, reason from clips where video_id='vid3'").fetchone()
+    assert tuple(clip) == ("failed", "no speaker on screen") and calls == []
+
+
+def test_sfx_follow_the_page_setting(d, cfg_with_podcast, fetched_video, monkeypatch):
+    calls = patch_render(monkeypatch)
+    monkeypatch.setattr(writing, "write_caption", lambda *a: "c")
+    clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
+    assert calls[0]["sfx"] is True
+    cfg_with_podcast.pages["podcastbawaal"].sfx = False
+    d.execute("update clips set status = 'planned' where video_id = 'vid3'")
+    clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
+    assert calls[1]["sfx"] is False

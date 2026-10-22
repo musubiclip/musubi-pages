@@ -22,11 +22,17 @@ class HookParts(BaseModel):
     punch: str
 
 
+class HookCandidate(BaseModel):
+    text: str
+    score: int = Field(ge=1, le=5)
+
+
 class Moment(BaseModel):
     start: float
     end: float
     title: str
     hook_text: str
+    hook_candidates: list[HookCandidate] = []
     hook_parts: HookParts | None
     reason: str
     emphasis: list[str]
@@ -37,6 +43,13 @@ class Moment(BaseModel):
     standalone: int = Field(ge=1, le=5)
     payoff: int = Field(ge=1, le=5)
     emotion: int = Field(ge=1, le=5)
+    # get-y2b-clips (MIT) virality scores; defaults keep moments picked before them valid
+    controversy: int = Field(3, ge=1, le=5)
+    insight: int = Field(3, ge=1, le=5)
+    engagement: int = Field(3, ge=1, le=5)
+    topic_match: int = Field(3, ge=1, le=5)
+    cold_open_start: float | None = None
+    cold_open_end: float | None = None
 
 
 class Moments(BaseModel):
@@ -48,29 +61,33 @@ Each transcript line is `[start-end seconds] text`. Choose clip moments for a sh
 
 What makes a moment worth posting:
 - It stands alone. Someone who never saw the video has to follow it. No "as I said", no unexplained "he" or "that".
-- It hooks inside 3 seconds. Start on the first word of a line that makes someone stop scrolling: a bold claim, a number, a question, a confession.
+- It hooks inside 2 seconds; this matters most of all. Start on the first word of a line that makes someone stop scrolling: a bold claim, a number, a question, a confession.
 - It pays off. End right after the punchline or the answer, never mid thought.
 - It stays on the hook's topic to the last word. Read the next two lines after your end: if they are a new question, a host moving on, or another speaker reacting, end before them.
 - Every speaker finishes. Start on the first word of a sentence and end on its last; never open on a word like "she" or "that" that needs the line before it.
-- Length is 30 to 90 seconds.
+- Length is 15 to 30 seconds as played: pauses over 0.6 seconds are cut out, and a cold open counts toward the 30. Never pick a span over 36 seconds.
 - Moments never overlap.
 - Skip any span with music, a song or a "[Music]" tag.
 - Timestamps come from the transcript lines; a line's start and end are safe choices.
 
 For each moment write:
-- hook_text: at most 8 words on screen for the first seconds, in English. No emojis, hashtags or dashes.
+- hook_candidates: 3 different hooks, each at most 8 words, each with a score from 1 to 5 for how hard it stops the scroll in the first 2 seconds. Write each as a curiosity gap, a contrarian claim, a number, or an open question.
+- hook_text: the strongest of your hook_candidates, word for word. At most 8 words on screen for the first seconds, in English. It must open a curiosity gap or tension: a number, a contrarian claim, or a "why" or "how" question the clip answers. Never a summary or a label ("Founder on burnout" is a label; "He lost ₹40 Cr in one week" is a hook). No emojis, hashtags or dashes.
 - hook_parts: the same hook split for the animation: kicker (a short line above), big (one number or short word that slams in, such as 90% or ₹5 Cr), punch (one to three words). Any part may be "". Use null to let the hook_text be split automatically.
 - title: a short working title. reason: one sentence on why it holds a viewer.
 - emphasis: 3 to 8 words from the moment's own speech to punch (names, places, numbers, the words the point turns on), in English as the English captions will show them.
 - focus_x: where the speaker sits across the frame, 0 left to 1 right, for a two shot; null when one person fills the frame.
 - speaker_name and speaker_role: who is talking, from the video title, the intro or someone addressing them by name. Null if unsure or if several people talk.
-- Scores from 1 to 5: hook (first 3 seconds stop the scroll), standalone (needs no context), payoff (ends on a satisfying line), emotion (funny, surprising, controversial or moving). Be strict: most land at 2 to 4, and 5 is rare.
+- cold_open_start and cold_open_end: when the opening line is not already the strongest, the 2 to 5 second payoff line from inside the moment (after its first second) to play first as a teaser, from the transcript times. Both null when the opening is already the strongest line.
+- Scores from 1 to 5: hook (first 2 seconds stop the scroll; weighed highest), standalone (needs no context), payoff (ends on a satisfying line), emotion (funny, surprising, controversial or moving). Be strict: most land at 2 to 4, and 5 is rare.
+- Virality scores from 1 to 5, weighed to rank the moments: controversy 30% (strong opinions, disagreement, a take people will argue with), insight 35% (surprising numbers, predictions, frameworks, something the viewer did not know), engagement 20% (stories, rhetorical questions, emotional peaks), topic_match 15% (how squarely it fits the page's topics). Prefer moments that score high here.
 """
 
 
-def pick_moments(transcript: str, title: str, want: int) -> list[Moment]:
+def pick_moments(transcript: str, title: str, want: int, topics: str = "") -> list[Moment]:
     prompt = (f"{PICK_RULES}\nPick {want * 2} candidates; the best {want} will be kept.\n\n"
-              f"Video title: {title}\n\nTranscript:\n{transcript}")
+              + (f"Page topics: {topics}\n" if topics else "")
+              + f"Video title: {title}\n\nTranscript:\n{transcript}")
     return llm.ask(prompt, Moments).moments
 
 

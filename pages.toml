@@ -7,7 +7,8 @@ voice = "Aman"
 window = [9, 23]
 daily_target = 1
 theme = {hot = "#7c5cff", sun = "#ffd23f", font = "Bricolage Grotesque"}
-music = []
+music = ["music/circuit-synthwave-alt.mp3", "music/lofi-beat-loafy.mp3", "music/synthwave-electropop.mp3"]
+sfx = true
 clips_per_video = 3
 
 # topics feed the clip layer and caption prompts (writing._topics).
@@ -18,7 +19,8 @@ voice = "Tara"
 window = [9, 23]
 daily_target = 1
 theme = {hot = "#256dfd", sun = "#5cff3a", font = "Poppins"}
-music = []
+music = ["music/circuit-synthwave-alt.mp3", "music/lofi-beat-loafy.mp3", "music/synthwave-electropop.mp3"]
+sfx = true
 clips_per_video = 3
 topics = "tech and AI: launches, hot takes, founders, AI tools and debates"
 

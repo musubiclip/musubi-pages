@@ -1,6 +1,7 @@
 """Blob storage: a local folder or an S3 bucket, chosen per call from env PAGES_STORE."""
 import json
 import os
+import random
 import shutil
 import tempfile
 from pathlib import Path
@@ -56,6 +57,15 @@ def exists(key: str) -> bool:
                 return False
             raise
     return _local(where, key).is_file()
+
+
+def music_bed(keys: list[str], folder) -> Path | None:
+    """A random one of a page's music keys, fetched into folder; a key not uploaded yet is skipped, not fatal."""
+    held = [k for k in keys if exists(k)]
+    if not held:
+        return None
+    key = random.choice(held)
+    return get(key, Path(folder) / Path(key).name)
 
 
 def keys(prefix: str) -> list[str]:

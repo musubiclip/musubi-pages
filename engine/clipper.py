@@ -24,7 +24,12 @@ STYLE = {"design": "v2", "keep_height": 1.0, "watermark": False}
 WATERMARK = SKILL_DIR / "assets" / "brand" / "watermark.png"
 HYPERFRAMES = "hyperframes@0.8.96"
 JOBS = int(os.environ.get("MUSUBI_CLIPS_JOBS", 3))
-MUSIC = {"file": None, "volume": 0.12}
+MUSIC = {"file": None, "volume": 0.10}
+DUCK = 0.6  # music level under speech, as a share of its base volume
+SFX = SKILL_DIR / "assets" / "sfx"
+SFX_VOLUME = {"whoosh": 0.5, "impact": 0.6, "pop": 0.4, "swoosh": 0.35}
+MIN_SPEAKER = 0.6  # share of sampled frames that must show a face
+VIRAL = {"controversy": 0.30, "insight": 0.35, "engagement": 0.20, "topic_match": 0.15}  # get-y2b-clips (MIT)
 END = {"choice": None, "name": "", "line": "", "screen": None}
 END_SECONDS = 2.6
 IMAGE_TYPES = {"image/svg+xml": ".svg", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
@@ -365,7 +370,47 @@ def breathe(start, end, words, lead, tail):
 
 
 def rank_score(clip):
+    if all(isinstance(clip.get(k), int) for k in VIRAL):
+        # pages: the hook weighs most (4 a point), then the virality mix scaled to 5 to 25
+        return clip["hook"] * 4 + clip["standalone"] + clip["payoff"] + clip["emotion"] + round(
+            5 * sum(clip[k] * w for k, w in VIRAL.items()), 2)
     return clip["hook"] * 2 + clip["standalone"] + clip["payoff"] + clip["emotion"]
+
+
+def fit_end(start, end, skip, cold, words, cap):
+    """An end that keeps the played clip (cold open plus the moment less its skips) within cap seconds,
+    on a sentence end when one lands in the second half, else on a word end."""
+    def played(e):
+        return e - start - sum(min(b, e) - a for a, b in skip if a < e) + (cold[1] - cold[0] if cold else 0)
+    if played(end) <= cap:
+        return end
+    fits = [w for w in words if start < w["end"] < end and played(w["end"] + 0.05) <= cap]
+    whole = [w for w in fits if w["word"][-1:] in ".?!\u0964" and w["end"] - start >= cap / 2]
+    if whole or fits:
+        last = (whole or fits)[-1]["end"]  # a skip never starts within 0.15 s of a word, so the tail is plain time
+        return round(min(breathe(start, last, words, 0, 0.3)[1], last + cap - played(last)), 3)
+    return round(start + cap - (cold[1] - cold[0] if cold else 0), 3)  # no words: skips only shorten it
+
+
+def played_seconds(clip):
+    return round(sum(b - a for a, b in pieces_for(clip)), 3)
+
+
+def silence_skips(words, start, end, gap=0.6, air=0.15):
+    """Skip spans for pauses longer than gap between words inside start to end, leaving air each side."""
+    inside = [w for w in words if start <= w["start"] and w["end"] <= end]
+    return [[round(a["end"] + air, 3), round(b["start"] - air, 3)] for a, b in zip(inside, inside[1:])
+            if b["start"] - a["end"] > gap]
+
+
+def merge_spans(spans):
+    merged = []
+    for a, b in sorted(spans):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return merged
 
 
 def tidy_clips(raw, words, keep):
@@ -384,6 +429,11 @@ def tidy_clips(raw, words, keep):
         start, end = breathe(start, end, words, LEAD, TAIL)
         skip = sorted([a, b] for a, b in clip.get("skip") or [] if start + 1 < a < b < end - 1)
         skip = [s for i, s in enumerate(skip) if i == 0 or s[0] > skip[i - 1][1]]
+        if clip.get("max_seconds"):
+            fitted = fit_end(start, end, skip, cold, words, clip["max_seconds"])
+            if cold and cold[1] > fitted:  # the teaser's line would be cut: drop the teaser, keep the payoff
+                cold, fitted = None, fit_end(start, end, skip, None, words, clip["max_seconds"])
+            end, skip = fitted, [s for s in skip if s[1] < fitted - 1]
         clips.append({**clip, "start": start, "end": end, "cold_open": cold, "skip": skip, "score": rank_score(clip)})
     clips.sort(key=lambda c: -c["score"])
     return clips[:keep]
@@ -483,6 +533,33 @@ def face_center(capture, detector, start, end, focus=None):
             x, _, w, h = max(faces, key=near)[:4]
             centers.append((x + w / 2) / scale)
     return statistics.median(centers) if centers else None
+
+
+def face_share(video, detector, start, end, samples=10):
+    """Share of frames sampled across start to end that show a face; slides and wide shots score low."""
+    import cv2
+
+    capture = cv2.VideoCapture(str(video))
+    seen = read = 0
+    for k in range(samples):
+        capture.set(cv2.CAP_PROP_POS_MSEC, (start + (end - start) * (k + 0.5) / samples) * 1000)
+        ok, frame = capture.read()
+        if not ok:
+            continue
+        read += 1
+        small = cv2.resize(frame, (640, round(frame.shape[0] * 640 / frame.shape[1])))
+        detector.setInputSize((small.shape[1], small.shape[0]))
+        _, faces = detector.detect(small)
+        seen += any(f[2] >= small.shape[1] * MIN_FACE for f in (faces if faces is not None else []))
+    capture.release()
+    return seen / read if read else 0.0
+
+
+def speaker_share(workdir, moment):
+    """face_share over a picked moment, read from its fetched section."""
+    meta = json.loads((workdir / "meta.json").read_text(encoding="utf-8"))
+    video, offset = video_section(workdir, meta, {**moment, "cold_open": moment.get("cold_open")}, None)
+    return face_share(video, face_detector(), moment["start"] - offset, moment["end"] - offset)
 
 
 def main_face(faces):
@@ -699,7 +776,81 @@ def reel_data(clip, words, duration, face=None):
         "outro": {"at": round(sum(b - a for a, b in pieces_for(clip)), 3), "seconds": clip["outro"]["seconds"],
                   "text": clip["outro"]["text"]} if clip.get("outro") else None,
         "cards": [{**c, "at": at} for c in clip.get("cards") or [] if (at := clip_time(clip, c["at"])) is not None],
+        "joins": joins(clip),
     }
+
+
+def joins(clip):
+    """Reel times of the jump cuts between pieces; a pre-roll running straight into the moment is no cut."""
+    out, at, pieces = [], 0.0, pieces_for(clip)
+    for (a, b), (c, _) in zip(pieces, pieces[1:]):
+        at += b - a
+        if abs(b - c) > 0.01:
+            out.append(round(at, 3))
+    return out
+
+
+def hook_slam(reel):
+    """When v2.html slams the hook: the big word's shake, else the punch line's (mirrors hookParts and buildHook)."""
+    parts = reel.get("hook_parts")
+    if not (parts and (parts.get("big") or parts.get("punch"))):
+        words = str(reel.get("hook") or "").split()
+        big = next((w for w in words if re.search(r"[0-9₹]", w)), "")
+        parts = {"big": big, "punch": " ".join([w for w in words if w != big][-2:])}
+    return 0.72 if parts.get("big") else 1.14 if parts.get("punch") else None
+
+
+def card_times(reel):
+    """When v2.html shows each context card (mirrors buildCards: after the hook, no overlaps)."""
+    d = reel["duration"]
+    hook_end = min(max(1.85, (reel.get("intro") or {}).get("seconds", 0)), d - 0.4)
+    cap_end = reel["outro"]["at"] if reel.get("outro") else d
+    shown = []
+    for c in reel.get("cards") or []:
+        if c.get("at") is None or c["at"] > cap_end - 1:
+            continue
+        at = max(hook_end + 0.1, c["at"])
+        out = min(at + c.get("hold", 4), d - 0.05, cap_end)
+        if not any(at < y + 0.2 and x < out + 0.2 for x, y in shown):
+            shown.append((at, out))
+    return [round(a, 3) for a, _ in shown]
+
+
+@functools.cache
+def sfx_seconds(name):
+    return round(duration_of(SFX / f"{name}.mp3"), 3)
+
+
+def sfx_tags(reel, total):
+    """<audio> tracks for the sound design: whoosh on the hook, impact on its slam, pop per card, swoosh per cut."""
+    slam = hook_slam(reel) if reel.get("hook") or reel.get("hook_parts") else None
+    cues = ([("whoosh", 0.0)] + ([("impact", slam)] if slam is not None else [])
+            + [("pop", t) for t in card_times(reel)] + [("swoosh", t) for t in reel.get("joins") or []])
+    tags = []
+    for i, (name, t) in enumerate(c for c in cues if c[1] < total - 0.1):
+        tags.append(f'<audio id="sfx-{i}" src="sfx/{name}.mp3" data-start="{t}" '
+                    f'data-duration="{min(sfx_seconds(name), round(total - t, 3))}" data-track-index="{20 + i}" '
+                    f'data-volume="{SFX_VOLUME[name]}"></audio>')
+    return "".join(tags)
+
+
+def music_bed(src, reel, total, volume):
+    """The music bed at a low base volume, ducked further while words are spoken (a HyperFrames volume lane)."""
+    voice = [(0.0, reel["intro"]["seconds"])] if reel.get("intro") else []
+    voice += [(reel["outro"]["at"], reel["outro"]["at"] + reel["outro"]["seconds"])] if reel.get("outro") else []
+    spans = []
+    for s, e in sorted(voice + [(w["s"], w["e"]) for w in reel["words"]]):
+        if spans and s - spans[-1][1] < 0.5:
+            spans[-1][1] = max(spans[-1][1], e)
+        else:
+            spans.append([s, e])
+    low, points = round(volume * DUCK, 3), [{"t": 0, "v": volume}]
+    for s, e in spans[:120]:  # ponytail: a lane holds 512 points; past 120 spans the bed stays at its last level
+        points += [{"t": round(max(0.0, s - 0.15), 3), "v": volume}, {"t": round(s, 3), "v": low},
+                   {"t": round(e, 3), "v": low}, {"t": round(e + 0.25, 3), "v": volume}]
+    lane = json.dumps({"version": 1, "lanes": [{"target": "volume", "points": points}]})
+    return (f'<audio id="music" src="{src}" data-start="0" data-duration="{total}" data-track-index="11" '
+            f"data-volume=\"{volume}\" data-automation='{lane}'></audio>")
 
 
 def channel_card(url):
@@ -766,8 +917,10 @@ def rgb(colour):
     return ", ".join(str(int(colour.lstrip("#")[i:i + 2], 16)) for i in (0, 2, 4))
 
 
-def reel_page(reel, design, total, duration, music_tag, theme, watermark=False):
+def reel_page(reel, design, total, duration, music_tag, theme, watermark=False, sfx=False):
     data = json.dumps(reel, ensure_ascii=False)
+    if sfx:
+        music_tag += sfx_tags(reel, total)
     html = REEL_TEMPLATES[design].read_text(encoding="utf-8")
     html = html.replace("<!--__MUSIC__-->", music_tag).replace("__TOTAL__", f"{total}").replace("__DURATION__", f"{duration}").replace("<!--__DATA__-->", f"<script>window.__REEL_DATA__ = {data};</script>")
     html = html.replace("<!--__WATERMARK__-->", '<img id="wm" src="watermark.png" alt="" />' if watermark else "")
@@ -782,7 +935,7 @@ def reel_page(reel, design, total, duration, music_tag, theme, watermark=False):
     return html
 
 
-def render_styled(workdir, video, clip, words, name, detector, out, parallel, *, design, watermark, end, music, theme=None, voices=None):
+def render_styled(workdir, video, clip, words, name, detector, out, parallel, *, design, watermark, end, music, theme=None, voices=None, sfx=False):
     project = workdir / "reel" / name
     if project.exists():
         shutil.rmtree(project)
@@ -792,23 +945,23 @@ def render_styled(workdir, video, clip, words, name, detector, out, parallel, *,
     shutil.copy(WATERMARK, project / WATERMARK.name)
     if end:
         shutil.copy(end["logo"], project / end["logo"].name)
-    music_tag = ""
     if music:
         shutil.copy(music, project / ("music" + Path(music).suffix))
-        music_tag = (f'<audio id="music" src="music{Path(music).suffix}" data-start="0" data-duration="__TOTAL__" '
-                     f'data-track-index="11" data-volume="{MUSIC["volume"]}"></audio>')
+    if sfx:
+        shutil.copytree(SFX, project / "sfx", ignore=shutil.ignore_patterns("*.md"))
     cut(video, clip, cut_graph(video, clip, detector), project / "base.mp4", project, fast_encoder())
     duration = round(duration_of(project / "base.mp4") - 0.05, 3)
     reel = reel_data(clip, words, duration, face_span(project / "base.mp4", detector))
     if end:
         reel["end"] = {"src": end["logo"].name, "kind": end["kind"], "name": end["name"], "line": end["line"], "seconds": END_SECONDS}
     total = round(duration + (END_SECONDS if end else 0), 3)
+    music_tag = music_bed(f"music{Path(music).suffix}", reel, total, MUSIC["volume"]) if music else ""
     for track, (key, audio) in enumerate((voices or {}).items(), 12):
         start = reel[key]["at"] if key == "outro" else 0
         shutil.copy(audio, project / f"{key}{Path(audio).suffix}")
         music_tag += (f'<audio id="vo-{key}" src="{key}{Path(audio).suffix}" data-start="{start}" '
                       f'data-duration="{round(duration_of(audio), 3)}" data-track-index="{track}" data-volume="1"></audio>')
-    html = reel_page(reel, design, total, duration, music_tag, theme, watermark)
+    html = reel_page(reel, design, total, duration, music_tag, theme, watermark, sfx)
     (project / "index.html").write_text(encoding="utf-8", data=html)
     command = [npx(), "--yes", HYPERFRAMES, "render", str(project), "-o", str(out),
                "--crf", "23", "--fps", "30", "--quiet"]
@@ -821,15 +974,16 @@ def render_styled(workdir, video, clip, words, name, detector, out, parallel, *,
         sys.exit(f"hyperframes render failed for {name}:\n{(done.stderr or done.stdout)[-1500:]}")
 
 
-def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None):
-    """One moment, design v2, no watermark, no end screen. Engine exits become errors callers can catch."""
+def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None, sfx=False):
+    """One moment, design v2, no watermark, no end screen. Engine exits become errors callers can catch.
+    Without an intro the moment's cold open (if any) plays first."""
     try:
-        return _render_one(workdir, moment, out, theme=theme, intro=intro, outro=outro, music=music)
+        return _render_one(workdir, moment, out, theme=theme, intro=intro, outro=outro, music=music, sfx=sfx)
     except SystemExit as e:
         raise RuntimeError(str(e.code)) from None
 
 
-def _render_one(workdir, moment, out, *, theme, intro, outro, music):
+def _render_one(workdir, moment, out, *, theme, intro, outro, music, sfx=False):
     meta = json.loads((workdir / "meta.json").read_text(encoding="utf-8"))
     words = all_words(json.loads((workdir / "transcript.json").read_text(encoding="utf-8")))
     clips = tidy_clips([moment], words, 1)
@@ -852,7 +1006,7 @@ def _render_one(workdir, moment, out, *, theme, intro, outro, music):
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     render_styled(workdir, video, clip, words, out.stem, face_detector(), out, False,
-                  design="v2", watermark=False, end=None, music=music, theme=theme, voices=voices)
+                  design="v2", watermark=False, end=None, music=music, theme=theme, voices=voices, sfx=sfx)
     return out
 
 

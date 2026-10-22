@@ -309,3 +309,123 @@ def test_render_one_without_words_renders_the_whole_moment(tmp_path, monkeypatch
     moment = {**MOMENT_30S, "start": 2.0, "end": 18.0, "cards": [{"at": 6.0, "title": "Why", "body": "Cats knead", "hold": 4}]}
     out = clipper.render_one(tmp_path, moment, tmp_path / "out" / "r.mp4", theme=THEME)
     assert clipper.probe_size(out) == (1080, 1920) and 15 < clipper.duration_of(out) < 17
+
+
+# --- pacing, the 30 s cap, ranking ---
+
+def sentences(n=200):
+    return [word(f"w{i}." if i % 10 == 9 else f"w{i}", i * 0.5, i * 0.5 + 0.4) for i in range(n)]
+
+
+def test_silence_skips_cut_long_pauses_and_leave_air():
+    words = [word("a", 0, 0.5), word("b", 0.6, 1.0), word("c", 2.0, 2.4), word("d", 2.9, 3.2), word("e", 9, 9.5)]
+    assert clipper.silence_skips(words, 0, 5) == [[1.15, 1.85]]  # c to d is 0.5 s; e lies past the end
+    assert clipper.merge_spans([[5, 6], [1, 2], [1.5, 3]]) == [[1, 3], [5, 6]]
+
+
+def test_a_capped_clip_plays_at_most_30_seconds_ending_on_a_sentence():
+    clip = tidy_clips([{**MOMENT_30S, "start": 10.0, "end": 49.9, "max_seconds": 30}], sentences(), 1)[0]
+    assert 15 <= clipper.played_seconds(clip) <= 30
+    assert clip["end"] == 34.94  # w69. ends at 34.9; w79. at 39.9 would play 30.04 s
+
+
+def test_the_cap_counts_the_cold_open_and_not_the_skips():
+    raw = {**MOMENT_30S, "start": 10.0, "end": 39.9, "max_seconds": 30, "cold_open_start": 20.0, "cold_open_end": 24.9}
+    clip = tidy_clips([raw], sentences(), 1)[0]
+    assert clip["cold_open"] and clipper.played_seconds(clip) <= 30 and clip["end"] < 39.9
+    later = tidy_clips([{**raw, "end": 44.9, "cold_open_start": 35.0, "cold_open_end": 39.9}], sentences(), 1)[0]
+    assert later["cold_open"] is None and clipper.played_seconds(later) <= 30  # the cap would cut its line: no teaser
+    skipped = tidy_clips([{**raw, "end": 44.9, "cold_open_start": None, "skip": [[15.0, 22.0]]}], sentences(), 1)[0]
+    assert skipped["skip"] == [[15.0, 22.0]] and clipper.played_seconds(skipped) <= 30 and skipped["end"] > 40
+
+
+def test_no_cap_keeps_the_engine_lengths():
+    clip = tidy_clips([{**MOMENT_30S, "start": 10.0, "end": 69.9}], sentences(), 1)[0]
+    assert clipper.played_seconds(clip) > 59
+
+
+def test_hook_weighs_most_when_the_virality_scores_are_given():
+    viral = {"controversy": 3, "insight": 3, "engagement": 3, "topic_match": 3}
+    strong_hook = {**MOMENT_30S, **viral, "hook": 5, "insight": 3}
+    strong_insight = {**MOMENT_30S, **viral, "hook": 4, "insight": 5}
+    assert clipper.rank_score(strong_hook) > clipper.rank_score(strong_insight)
+    assert clipper.rank_score(MOMENT_30S) == 15  # the engine's own score when there are none
+
+
+# --- speaker on screen ---
+
+class FakeDetector:
+    def __init__(self, hits):
+        self.hits = iter(hits)
+
+    def setInputSize(self, size):
+        pass
+
+    def detect(self, frame):
+        import numpy as np
+        return 1, (np.array([[100, 50, 120, 150]], dtype=float) if next(self.hits) else None)
+
+
+def test_face_share_counts_sampled_frames_with_a_face(tmp_path):
+    import subprocess
+    video = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=10:duration=4",
+                    "-pix_fmt", "yuv420p", str(video)], check=True)
+    assert clipper.face_share(video, FakeDetector([1, 1, 0, 0, 0, 1, 0, 0, 0, 0]), 0, 4) == 0.3
+    assert clipper.face_share(video, FakeDetector([1] * 10), 0, 4) == 1.0
+
+
+# --- sound design ---
+
+CARDS_100 = [{"at": 113.0, "title": "Who", "body": "Ex ISRO", "hold": 4}, {"at": 125.0, "title": "Why", "body": "Garage", "hold": 4}]
+
+
+def sfx_starts(html):
+    import re
+    return [(name, float(t)) for name, t in re.findall(r'src="sfx/(\w+)\.mp3" data-start="([\d.]+)"', html)]
+
+
+def test_sfx_land_on_the_hook_the_cards_and_the_cuts():
+    clip = {**tidied(100.0, 140.0), "skip": [[120.0, 121.0]], "cold_open": [130.0, 133.0],
+            "hook_parts": {"kicker": "Your cleaner is", "big": "90%", "punch": "Just water"}, "cards": CARDS_100}
+    reel = clipper.reel_data(clip, WORDS_95_TO_141, duration=42.0)
+    assert reel["joins"] == [3.0, 23.0]  # after the cold open, and at the skip
+    html = clipper.reel_page(reel, "v2", 42.0, 42.0, "", None, sfx=True)
+    assert sfx_starts(html) == [("whoosh", 0.0), ("impact", 0.72), ("pop", 16.0), ("pop", 27.0),
+                                ("swoosh", 3.0), ("swoosh", 23.0)]
+    assert 'data-volume="0.35"' in html and 'data-track-index="20"' in html
+
+
+def test_a_hook_without_a_big_word_hits_on_the_punch_and_pops_wait_for_the_hook():
+    reel = clipper.reel_data({**tidied(100.0, 140.0), "hook_text": "Why founders quit early",
+                              "cards": [{"at": 100.5, "title": "Who", "body": "b", "hold": 4}]}, WORDS_95_TO_141, duration=40.0)
+    assert sfx_starts(clipper.reel_page(reel, "v2", 40.0, 40.0, "", None, sfx=True)) == [
+        ("whoosh", 0.0), ("impact", 1.14), ("pop", 1.95)]
+
+
+def test_sfx_off_adds_no_sound_effects():
+    reel = clipper.reel_data({**tidied(100.0, 140.0), "cold_open": [130.0, 133.0], "cards": CARDS_100},
+                             WORDS_95_TO_141, duration=43.0)
+    assert sfx_starts(clipper.reel_page(reel, "v2", 43.0, 43.0, "", None)) == []
+
+
+def test_music_ducks_while_words_are_spoken():
+    reel = clipper.reel_data(tidied(100.0, 140.0), WORDS_95_TO_141, duration=40.0)
+    lane = json.loads(clipper.music_bed("music.mp3", reel, 40.0, 0.1).split("data-automation='")[1].split("'")[0])
+    points = lane["lanes"][0]["points"]
+    assert lane["lanes"][0]["target"] == "volume" and points[0] == {"t": 0, "v": 0.1}
+    assert {p["v"] for p in points} == {0.1, 0.06}
+
+
+@pytest.mark.slow
+def test_render_one_with_sfx_music_and_a_cold_open(fixture_workdir, tmp_path, monkeypatch):
+    import subprocess
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    music = tmp_path / "bed.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=60", str(music)], check=True)
+    moment = {**MOMENT_30S, "cards": CARDS, "max_seconds": 30, "cold_open_start": 25.0, "cold_open_end": 29.9}
+    words = clipper.all_words(json.loads((fixture_workdir / "transcript.json").read_text()))
+    assert tidy_clips([moment], words, 1)[0]["cold_open"]
+    out = clipper.render_one(fixture_workdir, moment, tmp_path / "r.mp4", theme=THEME, music=music, sfx=True)
+    streams = clipper.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(out)]).stdout
+    assert "audio" in streams and 20 < clipper.duration_of(out) <= 30.5
