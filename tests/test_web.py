@@ -151,6 +151,21 @@ def test_files_never_serves_backups(client, local_store):
     assert client.get("/files/clips/1.mp4").status_code == 200
 
 
+@pytest.mark.parametrize("path", ["/files/clips/%2E%2E/backups/pages-2026-11-02.db",
+                                  "/files/clips/..%2Fbackups%2Fpages-2026-11-02.db",
+                                  "/files/clips%2F..%2Fbackups%2Fpages-2026-11-02.db"])
+def test_files_cannot_climb_out_of_clips(client, local_store, path):
+    (local_store / "backups").mkdir(parents=True)
+    (local_store / "backups" / "pages-2026-11-02.db").write_bytes(b"db")
+    (local_store / "clips").mkdir(parents=True)
+    assert client.get(path).status_code == 404
+
+
+def test_withdrawn_sources_show_as_problems(client, d):
+    db.event(d, "podcastbawaal", "source_withdrawn", "clip 7")
+    assert "source_withdrawn: clip 7" in client.get("/").text
+
+
 def test_review_lists_problems_from_the_last_week(client, d):
     add_clip(d, "podcastbawaal", "failed", reason="layer too long")
     d.execute("insert into source_videos (page, video_id, url, status, note, created_at) values "

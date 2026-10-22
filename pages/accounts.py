@@ -22,7 +22,8 @@ def connect(db, handle: str, token: str, now: datetime, cfg=None) -> None:
 
 def pause(db, handle: str, reason: str, now: datetime) -> None:
     db.execute("update pages set paused_at = ?, pause_reason = ? where handle = ?", (now.isoformat(), reason, handle))
-    db.execute("update clips set status = 'approved', scheduled_at = null where page = ? and status = 'scheduled'",
+    db.execute("update clips set status = 'approved', scheduled_at = null, claimed_at = null where page = ? "
+               "and status in ('scheduled', 'publishing')",
                (handle,))
     db.commit()
     dbm.event(db, handle, "paused", reason)

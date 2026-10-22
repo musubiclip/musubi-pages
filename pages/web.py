@@ -93,7 +93,7 @@ def _draft(db, cfg, c):
 
 
 PROBLEM_EVENTS = ("publish_error", "tick_failed", "token_refresh_failed", "token_invalid", "bad_url",
-                  "insights_failed", "copyright_match", "paused", "permalink_failed")
+                  "insights_failed", "copyright_match", "paused", "permalink_failed", "source_withdrawn")
 
 
 def _problems(db, now):
@@ -191,14 +191,14 @@ async def links(url: str = Form(...), page: str = Form(...), note: str = Form(""
 
 @app.get("/files/{key:path}")
 async def files(key: str):
-    if not key.startswith("clips/"):  # the store also holds DB backups (with tokens) and work files
-        raise HTTPException(404)
     if os.environ.get("PAGES_STORE", "").startswith("s3://"):
         raise HTTPException(404)
     try:
         path = store._local(store._backend()[1], key)
     except ValueError:
         raise HTTPException(404)
-    if not path.is_file():
+    # only clips: the store also holds DB backups (with tokens). Checked on the resolved path, so
+    # encoded ../ in the key cannot climb out of clips/.
+    if not path.is_relative_to(store._backend()[1].resolve() / "clips") or not path.is_file():
         raise HTTPException(404)
     return FileResponse(path)

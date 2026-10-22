@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from pages import accounts, ig, schedule, store
 from pages import db as dbm
@@ -49,43 +49,48 @@ def _permitted(db, cfg, clip) -> bool:
 
 
 def publish_due(db, cfg, now: datetime) -> None:
-    stuck = (now - STUCK).isoformat()
+    # Claims use the wall clock (`now` may be a simulated tick time); a claim older than STUCK is a crash.
+    wall = datetime.now(UTC)
+    stale = (wall - STUCK).isoformat()
+    claimable = "(status = 'scheduled' or (status = 'publishing' and claimed_at <= ?))"
     due = db.execute("select id from clips where (status = 'scheduled' and scheduled_at <= ?) "
-                     "or (status = 'publishing' and scheduled_at <= ?) order by scheduled_at",
-                     (now.isoformat(), stuck)).fetchall()
+                     "or (status = 'publishing' and claimed_at <= ?) order by scheduled_at",
+                     (now.isoformat(), stale)).fetchall()
     for (cid,) in due:
-        # Re-read each time: an earlier clip may have paused the page or invalidated its token.
-        clip = db.execute("select * from clips where id = ? and status in ('scheduled', 'publishing')",
-                          (cid,)).fetchone()
+        # Re-read each time: an earlier clip may have paused the page, or another runner claimed this one.
+        clip = db.execute(f"select * from clips where id = ? and {claimable}", (cid, stale)).fetchone()
         page = _live_pages(db, now).get(clip["page"]) if clip else None
         if not page:
             continue
         try:
+            # An earlier attempt may already be live: settle that before any timing or permission rule.
+            if clip["container_id"] and ig.container(clip["container_id"], page["token"]).get(
+                    "status_code") == "PUBLISHED":
+                _published_without_id(db, clip, now)
+                continue
             if not _permitted(db, cfg, clip):
-                db.execute("update clips set status = 'failed', reason = 'source no longer permitted' where id = ?",
-                           (cid,))
+                db.execute("update clips set status = 'failed', reason = 'source no longer permitted', "
+                           "claimed_at = null where id = ?", (cid,))
                 db.commit()
                 dbm.event(db, clip["page"], "source_withdrawn", f"clip {cid}")
                 continue
-            if clip["status"] == "scheduled":
-                # No bursts after downtime: a late clip, or one too close to the last post, gets a fresh slot.
-                last = db.execute("select max(published_at) from clips where page = ?", (clip["page"],)).fetchone()[0]
-                late = now - datetime.fromisoformat(clip["scheduled_at"]) > timedelta(minutes=60)
-                if late or (last and now - datetime.fromisoformat(last) < timedelta(hours=3)):
-                    _reslot(db, cfg, clip, now)
-                    continue
-            # Claim it, so a second runner (or a later tick) never publishes it too. A stuck claim
-            # (crash mid-publish) is re-claimed after STUCK and resolved through its container.
-            cur = db.execute("update clips set status = 'publishing', scheduled_at = ? where id = ? and status = ? "
-                             "and scheduled_at = ?", (now.isoformat(), cid, clip["status"], clip["scheduled_at"]))
+            # No bursts after downtime: a late clip, or one too close to the last post, gets a fresh slot.
+            last = db.execute("select max(published_at) from clips where page = ?", (clip["page"],)).fetchone()[0]
+            late = now - datetime.fromisoformat(clip["scheduled_at"]) > timedelta(minutes=60)
+            if late or (last and now - datetime.fromisoformat(last) < timedelta(hours=3)):
+                _reslot(db, cfg, clip, now)
+                continue
+            cur = db.execute(f"update clips set status = 'publishing', claimed_at = ? where id = ? and {claimable}",
+                             (wall.isoformat(), cid, stale))
             db.commit()
-            if cur.rowcount != 1:
+            if cur.rowcount != 1:  # another runner has it
                 continue
             clip = db.execute("select * from clips where id = ?", (cid,)).fetchone()
             try:
                 _publish_one(db, cfg, clip, page, now)
-            finally:  # not published and not failed: back in the queue
-                db.execute("update clips set status = 'scheduled' where id = ? and status = 'publishing'", (cid,))
+            finally:  # not published and not failed: back in the queue at its own slot
+                db.execute("update clips set status = 'scheduled', claimed_at = null where id = ? "
+                           "and status = 'publishing'", (cid,))
                 db.commit()
         except ig.IGError as e:
             _handle_error(db, clip, e, now)
@@ -100,9 +105,11 @@ def _reslot(db, cfg, clip, now: datetime) -> None:
         "and (published_at is not null or scheduled_at is not null)", (clip["page"], clip["id"]))]
     slot = schedule.pick_slot(clip["page"], now, taken, page.window, page.daily_target)
     if slot is None:  # no room in two weeks: back to approved for schedule_approved to retry
-        db.execute("update clips set status = 'approved', scheduled_at = null where id = ?", (clip["id"],))
+        db.execute("update clips set status = 'approved', scheduled_at = null, claimed_at = null where id = ?",
+                   (clip["id"],))
     else:
-        db.execute("update clips set scheduled_at = ? where id = ?", (slot.isoformat(), clip["id"]))
+        db.execute("update clips set status = 'scheduled', scheduled_at = ?, claimed_at = null where id = ?",
+                   (slot.isoformat(), clip["id"]))
     db.commit()
     dbm.event(db, clip["page"], "rescheduled", f"clip {clip['id']} -> {slot.isoformat() if slot else 'approved'}")
 
@@ -113,10 +120,9 @@ def _publish_one(db, cfg, clip, page, now: datetime) -> None:
     if container_id:  # an earlier attempt got this far: Instagram may already have posted it
         status = ig.container(container_id, token).get("status_code")
         if status == "PUBLISHED":
-            _published(db, clip, None, now)
-            dbm.event(db, clip["page"], "published_without_id", f"clip {clip['id']} container {container_id}")
+            _published_without_id(db, clip, now)
             return
-        if status != "FINISHED":
+        if status not in ("FINISHED", "IN_PROGRESS"):  # IN_PROGRESS: wait on it below, never a second one
             container_id = None
     usage, total = ig.publishing_limit(uid, token)
     if usage >= total:
@@ -152,11 +158,17 @@ def _publish_one(db, cfg, clip, page, now: datetime) -> None:
 
 
 def _published(db, clip, media_id, now: datetime) -> None:
-    db.execute("update clips set status = 'published', media_id = ?, published_at = ? where id = ?",
+    db.execute("update clips set status = 'published', media_id = ?, published_at = ?, claimed_at = null "
+               "where id = ?",
                (media_id, now.isoformat(), clip["id"]))
     db.execute("update pages set first_post_at = coalesce(first_post_at, ?) where handle = ?",
                (now.isoformat(), clip["page"]))
     db.commit()
+
+
+def _published_without_id(db, clip, now: datetime) -> None:
+    _published(db, clip, None, now)
+    dbm.event(db, clip["page"], "published_without_id", f"clip {clip['id']} container {clip['container_id']}")
 
 
 def _handle_error(db, clip, e: ig.IGError, now: datetime) -> None:
