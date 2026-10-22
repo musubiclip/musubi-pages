@@ -103,19 +103,16 @@ class Card(BaseModel):
 
 
 class Layer(BaseModel):
-    intro: str
-    takeaway: str
     cards: list[Card]
     flags: list[str]
 
 
 def write_layer(page, moment: Moment, text: str) -> Layer:
-    prompt = (f"You write the original layer for a reel on the Instagram page @{page.handle} "
-              f"(topics: {_topics(page)}), in the page's voice, in English.\n"
-              "- intro: a voiceover of 8 to 16 words that sets up the clip.\n"
-              "- takeaway: a voiceover of 6 to 10 words that closes it.\n"
-              f"- cards: 1 to 3 context cards with facts the clip does not say. Each `at` is in source seconds "
-              f"between {moment.start} and {moment.end}. title short, body one sentence.\n"
+    prompt = (f"You write on screen context cards for a reel on the Instagram page @{page.handle} "
+              f"(topics: {_topics(page)}), in English.\n"
+              "- cards: 1 to 3 context cards with facts the clip itself does not say, such as who the speaker is "
+              "or the number or background behind a claim. Each `at` is in source seconds "
+              f"between {moment.start} and {moment.end}. title short, body one short sentence. No dashes.\n"
               f"- flags: {RESTRICTED}\n\n"
               f"Clip title: {moment.title}\nWhat the clip says:\n{text}")
     layer = llm.ask(prompt, Layer)

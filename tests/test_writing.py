@@ -31,7 +31,7 @@ def test_translate_returns_dicts(monkeypatch):
 
 
 def layer(*ats):
-    return writing.Layer(intro="i", takeaway="t", cards=[writing.Card(at=a, title="c", body="b") for a in ats], flags=[])
+    return writing.Layer(cards=[writing.Card(at=a, title="c", body="b") for a in ats], flags=[])
 
 
 def test_layer_validates_cards(monkeypatch):

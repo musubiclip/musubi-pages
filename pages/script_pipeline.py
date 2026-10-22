@@ -215,7 +215,7 @@ def _cc_jobs(db) -> list[dict]:
 
 def step(db, cfg) -> None:
     for page in cfg.pages.values():
-        if page.pipeline != "script":
+        if page.pipeline != "script" or not page.active:
             continue
         too_old = (datetime.now(UTC) - timedelta(days=CC_WAIT_DAYS)).isoformat()
         for clip_id, created in db.execute("select id, created_at from clips where page = ? and status = 'waiting_footage'",

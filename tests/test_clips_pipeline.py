@@ -216,17 +216,14 @@ def test_hindi_video_gets_english_lines(d, cfg_with_podcast, prepared_hindi_vide
 # --- make_clips ---
 
 def fake_layer(page, moment, text):
-    return writing.Layer(intro="Here is why founders burn out", takeaway="Rest is part of the work",
-                         cards=[writing.Card(at=120, title="Fact", body="Most founders sleep six hours.")], flags=[])
+    return writing.Layer(cards=[writing.Card(at=120, title="Fact", body="Most founders sleep six hours.")], flags=[])
 
 
-def patch_render(monkeypatch, intro_seconds=4.0):
+def patch_render(monkeypatch):
     calls = []
-    lengths = {"intro": intro_seconds, "outro": 3.0}
 
-    def fake_speak(text, voice_id, out):
-        out.write_bytes(b"mp3")
-        return [], lengths["intro" if "intro" in out.name else "outro"]
+    def fake_speak(*a):
+        raise AssertionError("clips get no voiceover")
 
     def fake_render(workdir, moment, out, **kw):
         calls.append({"workdir": workdir, "moment": moment, "offline": os.environ.get("MUSUBI_CLIPS_OFFLINE"), **kw})
@@ -258,18 +255,31 @@ def test_make_clips_turns_planned_into_drafts(d, cfg_with_podcast, fetched_video
     assert call["offline"] == "1" and call["workdir"] == config.HOME / "work" / "vid3"
     assert (call["workdir"] / "transcript.json").exists()
     assert call["theme"] == cfg_with_podcast.pages["podcastbawaal"].theme and call["music"] is None
-    assert call["intro"]["seconds"] == 4.0 and call["outro"]["text"] == "Rest is part of the work"
+    assert call["intro"] is None and call["outro"] is None
     assert call["moment"]["cards"] == [{"at": 120.0, "title": "Fact", "body": "Most founders sleep six hours.", "hold": 4}]
     assert status(d, "vid3")["status"] == "cut"
 
 
-def test_long_intro_fails_only_that_clip(d, cfg_with_podcast, fetched_video, monkeypatch):
-    calls = patch_render(monkeypatch, intro_seconds=8.0)
+def test_page_music_is_fetched_and_passed(d, cfg_with_podcast, fetched_video, monkeypatch):
+    calls = patch_render(monkeypatch)
     monkeypatch.setattr(writing, "write_caption", lambda *a: "c")
+    src = config.HOME / "bed.mp3"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_bytes(b"mp3")
+    store.put("music/bed.mp3", src)
+    cfg_with_podcast.pages["podcastbawaal"].music = ["music/bed.mp3"]
     clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
-    clip = d.execute("select status, reason from clips where video_id='vid3'").fetchone()
-    assert tuple(clip) == ("failed", "layer too long") and calls == []
-    assert status(d, "vid3")["status"] == "cut"
+    assert calls[0]["music"].read_bytes() == b"mp3"
+
+
+def test_inactive_page_gets_no_jobs_and_no_pick(d, cfg_with_podcast, prepared_video, monkeypatch):
+    cfg_with_podcast.pages["podcastbawaal"].active = False
+    add_video(d, "n1", "new")
+    monkeypatch.setattr(writing, "pick_moments", lambda *a: pytest.fail("picked for a paused page"))
+    clips_pipeline.step(d, cfg_with_podcast)
+    jobs = store.get_json("jobs/fetch.json")
+    assert jobs["watch"] == [] and jobs["prepare"] == []
+    assert status(d, "vid1")["status"] == "prepared"
 
 
 # --- step ---
