@@ -210,6 +210,41 @@ def test_theme_font_without_a_file_keeps_the_template_face():
     assert "Bricolage Grotesque-ExtraBold.ttf" not in html and '--display: "Bricolage Grotesque"' in html
 
 
+HEADLINE_REEL = {"duration": 30, "hook": "This gear destroyed a steel shredder in 3 seconds", "hook_style": "headline",
+                 "hook_accent": ["steel shredder"], "emphasis": [], "brand_tag": "TECH BAWAAL"}
+
+
+def test_headline_page_has_the_headline_brand_tag_accents_and_condensed_font():
+    html = clipper.reel_page(HEADLINE_REEL, "v2", 30, 30, "", THEME)
+    assert '<span id="hl-tag-text">TECH BAWAAL</span>' in html and '<div id="hl-text">' in html
+    assert '<span class="hl-w hl-a0">steel</span> <span class="hl-w hl-a0">shredder</span>' in html
+    assert '<span class="hl-w">gear</span>' in html and 'url("fonts/Anton-Regular.ttf")' in html
+    assert (clipper.FONTS / "Anton-Regular.ttf").exists()
+
+
+def test_spotlight_page_has_no_headline():
+    html = clipper.reel_page({**HEADLINE_REEL, "hook_style": "spotlight"}, "v2", 30, 30, "", THEME)
+    assert 'id="headline"' not in html and "Anton-Regular" not in html and "<!--__HEADLINE__-->" not in html
+
+
+def test_accent_falls_back_to_emphasis_then_numbers_then_the_longest_word():
+    reel = {**HEADLINE_REEL, "hook_accent": []}
+    assert clipper.accent_words({**reel, "emphasis": ["Shredder", "Mumbai"]}) == ["shredder"]
+    assert clipper.accent_words(reel) == ["3"]
+    assert clipper.accent_words({**reel, "hook": "Engineers rebuild a shredder"}) == ["engineers"]
+    runs = clipper.headline_markup({**reel, "hook_accent": ["gear", "3 seconds"]})
+    assert 'hl-a0">gear<' in runs and 'hl-a1">3<' in runs and 'hl-a1">seconds<' in runs  # runs alternate colours
+
+
+def test_headline_holds_2_5_seconds_or_the_cold_open_up_to_3_5():
+    assert clipper.hook_end(HEADLINE_REEL) == 2.5
+    assert clipper.hook_end({**HEADLINE_REEL, "cut": 3.1}) == 3.1
+    assert clipper.hook_end({**HEADLINE_REEL, "cut": 6}) == 3.5
+    assert clipper.hook_end({**HEADLINE_REEL, "hook_style": "spotlight"}) == 1.85
+    assert clipper.hook_slam(HEADLINE_REEL) == 0.1
+    assert clipper.card_times({**HEADLINE_REEL, "cards": [{"at": 1.0}]}) == [2.6]  # cards wait for the headline
+
+
 def test_render_one_turns_an_engine_exit_into_an_error(tmp_path, monkeypatch):
     words = [word(f"w{i}." if i % 10 == 9 else f"w{i}", i * 0.5, i * 0.5 + 0.4) for i in range(120)]
     (tmp_path / "transcript.json").write_text(json.dumps({"language": "en", "source": "youtube",
@@ -415,6 +450,17 @@ def test_music_ducks_while_words_are_spoken():
     points = lane["lanes"][0]["points"]
     assert lane["lanes"][0]["target"] == "volume" and points[0] == {"t": 0, "v": 0.1}
     assert {p["v"] for p in points} == {0.1, 0.06}
+
+
+@pytest.mark.slow
+def test_render_one_headline_style_and_its_cover(fixture_workdir, tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSUBI_CLIPS_OFFLINE", "1")
+    moment = {**MOMENT_30S, "hook_text": "This gear destroyed a steel shredder in 3 seconds", "hook_accent": ["steel shredder"]}
+    out = clipper.render_one(fixture_workdir, moment, tmp_path / "r.mp4", theme=THEME, hook_style="headline",
+                             brand_tag="TECH BAWAAL")
+    html = (fixture_workdir / "reel" / "r" / "index.html").read_text()
+    assert 'id="headline"' in html and "TECH BAWAAL" in html
+    assert clipper.probe_size(out) == (1080, 1920) and clipper.probe_size(out.with_suffix(".jpg")) == (1080, 1920)
 
 
 @pytest.mark.slow

@@ -23,6 +23,8 @@ class Page:
     sfx: bool = True  # sound effects on the hook, cards and cuts (clip pages)
     active: bool = True
     queries: list[str] = field(default_factory=list)  # Creative Commons YouTube searches: any page with these gets visual reels
+    hook_style: str = "spotlight"  # "headline": a news headline with the brand tag opens every reel and is its cover
+    brand_tag: str = ""  # small caps over the headline, such as "TECH BAWAAL"
 
 
 @dataclass
@@ -52,6 +54,8 @@ def load(path: Path = ROOT / "pages.toml") -> Config:
         lo, hi = page.window
         if not 0 <= lo < hi <= 24:
             raise ValueError(f"{handle}: window must lie within 0 to 24")
+        if page.hook_style not in ("spotlight", "headline"):
+            raise ValueError(f"{handle}: hook_style must be spotlight or headline")
         if not 1 <= page.daily_target <= 3:
             raise ValueError(f"{handle}: daily_target must be 1 to 3")
         pages[handle] = page

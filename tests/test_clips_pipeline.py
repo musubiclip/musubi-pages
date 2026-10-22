@@ -179,12 +179,13 @@ def test_music_spans_reads_caption_tags():
 def test_pick_drops_music_short_and_broken_moments(d, cfg_with_podcast, prepared_video, monkeypatch):
     asked = {}
 
-    def fake_pick(transcript, title, want, topics=""):
-        asked.update(transcript=transcript, title=title, want=want)
+    def fake_pick(transcript, title, want, topics="", hook_style="spotlight"):
+        asked.update(transcript=transcript, title=title, want=want, hook_style=hook_style)
         return [M(100, 125), M(10, 30), M(300, 310), M(400, 425, hook=None), M(500, 560)]
     monkeypatch.setattr(writing, "pick_moments", fake_pick)
     clips_pipeline.pick(d, cfg_with_podcast, prepared_video)
     assert asked["want"] == 3 and asked["title"] == "Video vid1" and "w100" in asked["transcript"]
+    assert asked["hook_style"] == "spotlight"
     clips = d.execute("select * from clips where video_id='vid1'").fetchall()
     assert len(clips) == 1 and clips[0]["status"] == "planned" and clips[0]["kind"] == "clip"
     assert 99 <= clips[0]["start"] <= 100 and json.loads(clips[0]["moment"])["title"] == "Burnout"
@@ -394,3 +395,12 @@ def test_sfx_follow_the_page_setting(d, cfg_with_podcast, fetched_video, monkeyp
     d.execute("update clips set status = 'planned' where video_id = 'vid3'")
     clips_pipeline.make_clips(d, cfg_with_podcast, fetched_video)
     assert calls[1]["sfx"] is False
+
+
+def test_strongest_hook_holds_headlines_to_6_to_14_words():
+    m = {"hook_text": "AI changes jobs", "hook_accent": ["AI"],
+         "hook_candidates": [{"text": "Nandan Nilekani says AI will change every job in India", "score": 4}]}
+    got = clips_pipeline.strongest_hook(m, (6, 14))
+    assert got["hook_text"].startswith("Nandan") and got["hook_accent"] == []  # the accent was for the old hook
+    assert clips_pipeline.strongest_hook({"hook_text": "Too short", "hook_candidates": []}, (6, 14)) is None
+    assert clips_pipeline.strongest_hook({"hook_text": "Too short", "hook_candidates": []})["hook_text"] == "Too short"

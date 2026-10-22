@@ -30,7 +30,7 @@ def home(tmp_path, monkeypatch):
 
 
 def M(start, end, **kw):
-    return ap.Moment(**{"start": start, "end": end, "title": "Cucumber jump", "hook_text": "She did not expect this",
+    return ap.Moment(**{"start": start, "end": end, "title": "Cucumber jump", "hook_text": "She did not expect this cucumber at all",
                         "cards": [{"at": start + 2, "title": "Why", "body": "Cats startle at long shapes."}],
                         "flags": [], "hook": 4, "standalone": 4, "payoff": 4, "emotion": 4, **kw})
 
@@ -196,7 +196,8 @@ def test_cut_renders_drafts_with_cards_music_and_the_cc_credit(d, cfg, local_sto
     assert [(r["start"], r["end"], r["status"], r["kind"]) for r in rows] == [(10, 30, "draft", "clip"), (50, 80, "draft", "clip")]
     workdir, moment, kw = fakes[0]
     assert moment["cards"][0] == {"at": 12.0, "title": "Why", "body": "Cats startle at long shapes.", "hold": 4}
-    assert kw == {"theme": cfg.pages["tech_bawaal"].theme, "intro": None, "outro": None, "music": None}
+    assert kw == {"theme": cfg.pages["tech_bawaal"].theme, "intro": None, "outro": None, "music": None,
+                  "hook_style": "headline", "brand_tag": "TECH BAWAAL"}
     meta = json.loads((workdir / "meta.json").read_text())
     assert meta["url"] == INFO["webpage_url"] and meta["path"] == str(workdir / "source.mp4") and meta["language"] == "en"
     assert json.loads((workdir / "transcript.json").read_text())["segments"] == []
@@ -269,7 +270,30 @@ def test_pick_prompt_is_page_neutral(cfg, monkeypatch):
     ap.pick_moments(page, INFO, 120, [], [], 2)
     assert "@tech_bawaal" in seen["prompt"] and "gadgets and engineering explainers" in seen["prompt"]
     assert "cats" not in ap.PICK_RULES and "animal videos" not in ap.PICK_RULES
-    assert "This is what happens when" in ap.PICK_RULES and "mechanism" in ap.PICK_RULES and "If animals appear" in ap.PICK_RULES
+    assert "This is what happens when" in ap.HOOK_RULES["spotlight"] and "mechanism" in ap.PICK_RULES and "If animals appear" in ap.PICK_RULES
+    # tech_bawaal is a headline page: a factual 6 to 14 word headline with accent words, not the 8 word teaser
+    assert "news headline of 6 to 14 words" in seen["prompt"] and "hook_accent" in seen["prompt"]
+    assert "at most 8 words" not in seen["prompt"]
+
+
+def test_keep_holds_headlines_to_6_to_14_words():
+    short, ok = M(0, 20, hook_text="Gear eats steel"), M(30, 50, hook_text="This gear destroyed a steel shredder in 3 seconds")
+    assert ap.keep([short, ok], 120, 3, "headline") == [ok]
+    assert ap.keep([short, ok], 120, 3) == [short]  # spotlight: at most 8 words
+
+
+def test_cut_stores_the_cover_frame(d, cfg, local_store, fakes, monkeypatch):
+    real = clipper.render_one
+
+    def with_cover(workdir, moment, out, **kw):
+        real(workdir, moment, out, **kw)
+        out.with_suffix(".jpg").write_bytes(b"jpg")
+        return out
+    monkeypatch.setattr(clipper, "render_one", with_cover)
+    downloaded(d, local_store)
+    ap.step(d, cfg)
+    row = d.execute("select id, cover_key from clips where status = 'draft'").fetchone()
+    assert row["cover_key"] == f"clips/{row['id']}.jpg" and store.exists(row["cover_key"])
 
 
 def test_any_page_with_queries_gets_jobs_whatever_its_pipeline(d, local_store):

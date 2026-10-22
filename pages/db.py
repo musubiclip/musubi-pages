@@ -43,9 +43,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("pragma journal_mode=wal")
     db.executescript(SCHEMA)
-    if "claimed_at" not in {r["name"] for r in db.execute("pragma table_info(clips)")}:  # DBs made before it
-        db.execute("alter table clips add column claimed_at text")
-        db.commit()
+    have = {r["name"] for r in db.execute("pragma table_info(clips)")}
+    for column in ("claimed_at", "cover_key"):  # DBs made before them
+        if column not in have:
+            db.execute(f"alter table clips add column {column} text")
+    db.commit()
     return db
 
 

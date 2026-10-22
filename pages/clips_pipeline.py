@@ -104,6 +104,15 @@ def advance(db, cfg) -> None:
             _set(db, row, "fetched")
 
 
+def put_cover(clip_id: int, out: Path) -> str | None:
+    """Store the cover frame render_one wrote beside the video; its key, or None when there is none."""
+    cover = out.with_suffix(".jpg")
+    if not cover.exists():
+        return None
+    store.put(f"clips/{clip_id}.jpg", cover)
+    return f"clips/{clip_id}.jpg"
+
+
 def _text(key: str) -> str:
     return store.get(key, config.HOME / "tmp" / key).read_text().strip()
 
@@ -128,12 +137,13 @@ def music_spans(json3_text: str) -> list[tuple[float, float]]:
     return spans
 
 
-def strongest_hook(m: dict) -> dict | None:
-    """Keep the best scored hook candidate (at most 8 words, no dashes); None when no usable hook is left."""
-    ok = lambda t: 0 < len(t.split()) <= 8 and not re.search(r"[–—]| - ", t)
+def strongest_hook(m: dict, words: tuple[int, int] = (1, 8)) -> dict | None:
+    """Keep the best scored hook candidate (words long, no dashes); None when no usable hook is left."""
+    ok = lambda t: words[0] <= len(t.split()) <= words[1] and not re.search(r"[–—]| - ", t)
     best = max((c for c in m.get("hook_candidates") or [] if ok(c["text"])), key=lambda c: c["score"], default=None)
     if best and best["text"].strip() != m["hook_text"].strip():
-        m = {**m, "hook_text": best["text"].strip(), "hook_parts": None}  # the parts were split for another hook
+        # the parts and accent were written for another hook
+        m = {**m, "hook_text": best["text"].strip(), "hook_parts": None, "hook_accent": []}
     return m if ok(m["hook_text"]) else None
 
 
@@ -152,7 +162,7 @@ def pick(db, cfg, video_row) -> None:
     transcript = json.loads((workdir / "transcript.json").read_text())
     music = [s for f in workdir.glob("captions.*.json3") for s in music_spans(f.read_text())]
     found = writing.pick_moments((workdir / "transcript.txt").read_text(), video_row["title"] or meta["title"],
-                                 page.clips_per_video, topics=writing._topics(page))
+                                 page.clips_per_video, topics=writing._topics(page), hook_style=page.hook_style)
     words = clipper.all_words(transcript)
     good = []
     for m in (m.model_dump() for m in found):
@@ -160,7 +170,7 @@ def pick(db, cfg, video_row) -> None:
             continue
         if any(a < m["end"] and m["start"] < b for a, b in music):
             continue
-        m = strongest_hook(m)
+        m = strongest_hook(m, writing.HOOK_WORDS[page.hook_style])
         if m is None:
             continue
         m["cold_open_start"], m["cold_open_end"] = cold_open(m)
@@ -207,13 +217,16 @@ def make_clips(db, cfg, video_row) -> None:
             music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip['id']}.mp4"
             clipper.render_one(workdir, {**m, "cards": [{**c.model_dump(), "hold": 4} for c in layer.cards]}, out,
-                               theme=page.theme, intro=None, outro=None, music=music, sfx=page.sfx)
+                               theme=page.theme, intro=None, outro=None, music=music, sfx=page.sfx,
+                               hook_style=page.hook_style, brand_tag=page.brand_tag)
             key = f"clips/{clip['id']}.mp4"
             store.put(key, out)
+            cover = put_cover(clip["id"], out)
             caption = writing.write_caption(page, f"{m['title']}. {m['reason']}", [credit], previous)
             previous.append(caption)
-            db.execute("update clips set layer = ?, credits = ?, file_key = ?, caption = ?, status = 'draft' where id = ?",
-                       (layer.model_dump_json(), json.dumps([credit], ensure_ascii=False), key, caption, clip["id"]))
+            db.execute("update clips set layer = ?, credits = ?, file_key = ?, cover_key = ?, caption = ?, status = 'draft' "
+                       "where id = ?", (layer.model_dump_json(), json.dumps([credit], ensure_ascii=False), key, cover,
+                                        caption, clip["id"]))
         except Exception as e:
             db.execute("update clips set status = 'failed', reason = ? where id = ?", (str(e), clip["id"]))
         db.commit()
