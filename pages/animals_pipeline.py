@@ -19,7 +19,7 @@ from engine import clipper
 
 SOURCE = "cc_youtube"
 VIDEO_MIN, VIDEO_MAX = 30, 20 * 60
-CLIP_MIN, CLIP_MAX = 15, 45
+CLIP_MIN, CLIP_MAX = 15, 30  # every reel is at most 30 seconds
 EVERY = 2.0  # seconds between contact sheet frames, stretched for long videos
 TILE, MAX_SHEETS = 4, 12  # 4x4 frames a sheet
 

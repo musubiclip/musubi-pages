@@ -164,7 +164,7 @@ def test_pick_sends_the_sheets_and_cuts_to_claude(cfg, tmp_path, monkeypatch):
     sheet = tmp_path / "sheet-01.png"
     got = ap.pick_moments(cfg.pages["tech_bawaal"], INFO, 120, [4.5, 12.25], [sheet], 2)
     assert got[0].start == 10 and seen["images"] == [sheet]
-    assert "4.5, 12.2" in seen["prompt"] and "Cat vs cucumber" in seen["prompt"] and "15 to 45" in seen["prompt"]
+    assert "4.5, 12.2" in seen["prompt"] and "Cat vs cucumber" in seen["prompt"] and "15 to 30" in seen["prompt"]
 
 
 # --- cut ---
