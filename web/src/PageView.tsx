@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react"
-import { CalendarClock, ExternalLink, Film, KeyRound, Link2, Pause, Play, Trash2 } from "lucide-react"
+import { CalendarClock, CalendarDays, ExternalLink, Film, KeyRound, Link2, Pause, Play, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { day, hour, post, when, type Page, type Reel } from "@/api"
@@ -7,14 +7,19 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { AspectRatio } from "@/components/ui/aspect-ratio"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Card } from "@/components/ui/card"
 import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Header, Label11 } from "@/parts"
 
 type Refresh = () => Promise<void>
@@ -133,49 +138,59 @@ const TABS = [["scheduled", "Scheduled"], ["approved", "Approved"], ["published"
 const KIND: Record<string, string> = { montage: "Montage", rapidfire: "Rapid fire", script: "Script reel" }
 
 function Reels({ reels, handle, window, refresh }: { reels: Reel[]; handle: string; window: [number, number]; refresh: Refresh }) {
-  const [tab, setTab] = useState<Reel["status"]>(reels.some((r) => r.status === "scheduled") ? "scheduled" : "published")
-  const shown = reels.filter((r) => r.status === tab)
-    .sort((a, b) => tab === "scheduled" ? (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "") : 0)
+  const first = reels.some((r) => r.status === "scheduled") ? "scheduled" : "published"
   return (
     <Card className="gap-4">
-      <CardHead title="Reels" aside={
-        <div role="tablist" aria-label="Reel status" className="inline-flex rounded-[10px] border bg-muted p-0.5">
-          {TABS.map(([k, label]) => {
-            const n = reels.filter((r) => r.status === k).length
-            return (
-              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-                className={`rounded-[8px] px-3 py-1.5 text-sm font-medium transition-all duration-200 ${tab === k
-                  ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                {label} <span className="tnum text-muted-foreground">{n}</span>
-              </button>
-            )
-          })}
-        </div>
-      } />
-      {shown.length === 0 ? (
-        <p className="px-5 pb-1 text-sm text-muted-foreground max-sm:px-4">No {tab} reels for @{handle} yet.</p>
-      ) : (
-        <ul key={tab} className="grid animate-in grid-cols-2 gap-3 px-5 fade-in duration-300 max-sm:px-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-          {shown.map((r) => <ReelTile key={r.id} r={r} window={window} refresh={refresh} />)}
-        </ul>
-      )}
+      <Tabs defaultValue={first} className="gap-4">
+        <CardHead title="Reels" aside={
+          <TabsList aria-label="Reel status">
+            {TABS.map(([k, label]) => (
+              <TabsTrigger key={k} value={k}>
+                {label} <Badge variant="plain" className="tnum ml-1">{reels.filter((r) => r.status === k).length}</Badge>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        } />
+        {TABS.map(([k]) => {
+          const shown = reels.filter((r) => r.status === k)
+            .sort((a, b) => k === "scheduled" ? (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "") : 0)
+          return (
+            <TabsContent key={k} value={k} className="animate-in px-5 fade-in duration-300 max-sm:px-4">
+              {shown.length === 0 ? (
+                <p className="pb-1 text-sm text-muted-foreground">No {k} reels for @{handle} yet.</p>
+              ) : (
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+                  {shown.map((r) => <ReelTile key={r.id} r={r} window={window} refresh={refresh} />)}
+                </ul>
+              )}
+            </TabsContent>
+          )
+        })}
+      </Tabs>
     </Card>
   )
 }
 
-// "2026-10-23T07:00" in IST, the value a datetime-local input takes
-const istInput = (iso: string | null) => {
-  if (!iso) return ""
-  const d = new Date(new Date(iso).getTime() + 330 * 60_000)
-  return d.toISOString().slice(0, 16)
+// IST wall clock parts of an instant, and back
+const IST_MS = 330 * 60_000
+const istParts = (iso: string | null) => {
+  const d = new Date((iso ? new Date(iso).getTime() : Date.now()) + IST_MS)
+  return { day: new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), hour: d.getUTCHours(), minute: d.getUTCMinutes() }
 }
+const istIso = (day: Date, hour: number, minute: number) =>
+  `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}T` +
+  `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+05:30`
+const MINUTES = [0, 15, 30, 45]
 
 function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; refresh: Refresh }) {
   const at = r.status === "published" ? r.published_at : r.status === "scheduled" ? r.scheduled_at : null
   const [open, setOpen] = useState(false)
-  const [time, setTime] = useState(istInput(r.scheduled_at))
+  const [pick, setPick] = useState(() => istParts(r.scheduled_at))
   const [busy, setBusy] = useState(false)
-  const id = useId()
+  const hours = Array.from({ length: window[1] - window[0] }, (_, i) => window[0] + i)
+  const chosen = istIso(pick.day, pick.hour, pick.minute)
+  const changed = r.scheduled_at !== null && new Date(chosen).getTime() !== new Date(r.scheduled_at).getTime()
+  const today = istParts(null).day
   const act = async (path: string, body: object | undefined, done: string, close: boolean) => {
     setBusy(true)
     const ok = await send(`/api/clips/${r.id}/${path}`, body, done, refresh)
@@ -184,10 +199,10 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
   }
   return (
     <li>
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setTime(istInput(r.scheduled_at)) }}>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(istParts(r.scheduled_at)) }}>
         <DialogTrigger asChild>
           <button className="group flex w-full flex-col gap-2 text-left focus-visible:outline-none">
-            <span className="relative block aspect-[9/16] w-full overflow-hidden rounded-[10px] border bg-muted shadow-sm transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
+            <AspectRatio ratio={9 / 16} className="overflow-hidden rounded-[10px] border bg-muted shadow-sm transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
               {r.cover_url ? (
                 <img src={r.cover_url} alt="" loading="lazy" decoding="async"
                   className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
@@ -197,11 +212,12 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
               <span className="absolute inset-0 grid place-items-center bg-foreground/0 transition-colors duration-300 group-hover:bg-foreground/20">
                 <Play aria-hidden="true" className="size-9 rounded-full bg-card/90 p-2 opacity-0 shadow transition-opacity duration-300 group-hover:opacity-100" />
               </span>
-            </span>
-            <span className="flex flex-col gap-0.5">
+            </AspectRatio>
+            <span className="flex flex-col gap-1">
               <span className="line-clamp-2 text-sm leading-snug font-medium">{r.hook || `Reel #${r.id}`}</span>
-              <span className="text-xs text-muted-foreground">
-                {KIND[r.kind] ?? "Clip"}{at && ` · ${r.status === "published" ? "posted" : "posts"} ${when(at)}`}
+              <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <Badge variant="plain">{KIND[r.kind] ?? "Clip"}</Badge>
+                {at && <span>{when(at)}</span>}
               </span>
             </span>
           </button>
@@ -215,25 +231,49 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
           </DialogHeader>
           {r.video_url ? (
             <video src={r.video_url} poster={r.cover_url ?? undefined} controls autoPlay playsInline
-              className="aspect-[9/16] max-h-[70vh] w-full rounded-[10px] bg-foreground object-contain" />
+              className="aspect-[9/16] max-h-[60vh] w-full rounded-[10px] bg-foreground object-contain" />
           ) : <p className="text-sm text-muted-foreground">No video file.</p>}
           {r.status === "scheduled" && (
-            <form className="flex flex-col gap-2" onSubmit={(e) => {
-              e.preventDefault()
-              act("reschedule", { at: `${time}:00+05:30` }, `Reel #${r.id} moved to ${when(`${time}:00+05:30`)}`, false)
-            }}>
-              <Label htmlFor={`${id}-time`}>Post time, IST</Label>
-              <div className="flex gap-2">
-                <Input id={`${id}-time`} type="datetime-local" required value={time} min={istInput(new Date().toISOString())}
-                  onChange={(e) => setTime(e.target.value)} className="tnum flex-1" />
-                <Button type="submit" variant="outline" disabled={busy || !time || time === istInput(r.scheduled_at)}>
-                  <CalendarClock aria-hidden="true" /> Save
-                </Button>
+            <div className="flex flex-col gap-2">
+              <Label>Post time, IST</Label>
+              <div className="flex flex-wrap gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="flex-1 justify-start font-normal">
+                      <CalendarDays aria-hidden="true" />
+                      {pick.day.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={pick.day} disabled={{ before: today }} autoFocus
+                      onSelect={(day) => day && setPick({ ...pick, day })} />
+                  </PopoverContent>
+                </Popover>
+                <Select value={String(pick.hour)} onValueChange={(v) => setPick({ ...pick, hour: Number(v) })}>
+                  <SelectTrigger className="tnum w-24" aria-label="Hour"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {hours.map((h) => <SelectItem key={h} value={String(h)} className="tnum">{hour(h)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={String(pick.minute)} onValueChange={(v) => setPick({ ...pick, minute: Number(v) })}>
+                  <SelectTrigger className="tnum w-20" aria-label="Minute"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(MINUTES.includes(pick.minute) ? MINUTES : [...MINUTES, pick.minute].sort((a, b) => a - b)).map((m) => (
+                      <SelectItem key={m} value={String(m)} className="tnum">:{String(m).padStart(2, "0")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <p className="text-xs text-muted-foreground">Between {hour(window[0])} and {hour(window[1])}, the page's posting window.</p>
-            </form>
+              <p className="text-xs text-muted-foreground">Inside the posting window, {hour(window[0])} to {hour(window[1])}.</p>
+            </div>
           )}
           <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
+            {r.status === "scheduled" && (
+              <Button disabled={busy || !changed}
+                onClick={() => act("reschedule", { at: chosen }, `Reel #${r.id} moved to ${when(chosen)}`, false)}>
+                <CalendarClock aria-hidden="true" /> Save time
+              </Button>
+            )}
             {r.cover_url && (
               <Button variant="outline" asChild><a href={r.cover_url} target="_blank" rel="noreferrer">Open cover</a></Button>
             )}
@@ -245,7 +285,7 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
             {r.status === "scheduled" && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="ghost" className="text-destructive" disabled={busy}><Trash2 aria-hidden="true" /> Remove</Button>
+                  <Button variant="ghost" disabled={busy}><Trash2 aria-hidden="true" /> Remove</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -261,7 +301,6 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
                 </AlertDialogContent>
               </AlertDialog>
             )}
-            <DialogClose asChild><Button variant="ghost">Close</Button></DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

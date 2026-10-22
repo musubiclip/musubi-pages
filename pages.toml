@@ -16,7 +16,7 @@ clips_per_video = 3
 active = true
 pipeline = "clips"
 voice = "Tara"
-window = [9, 23]
+window = [7, 23]
 daily_target = 2
 theme = {hot = "#256dfd", sun = "#5cff3a", font = "Poppins"}
 music = ["music/trap-deep-bass-nesmartu.mp3", "music/trap-mafia-game-notmeat2020.mp3", "music/trap-beat-hscoa.mp3"]
