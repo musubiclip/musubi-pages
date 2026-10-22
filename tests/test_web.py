@@ -78,7 +78,7 @@ def test_one_off_video_shows_its_note(client, d):
 
 
 def test_script_draft_shows_claims_and_credit_links(client, d):
-    add_clip(d, "billikalesh", "draft", kind="script",
+    add_clip(d, "tech_bawaal", "draft", kind="script",
              script=json.dumps({"hook_text": "Cats see in the dark", "claims": ["Cats see in low light"],
                                 "flags": []}),
              credits=json.dumps([{"credit": "Footage: Ann / pexels", "page_url": "https://pexels.com/v"}]))
@@ -94,11 +94,11 @@ def test_state_shape(client, d):
     add_clip(d, "podcastbawaal", "published")
     add_draft(d)
     s = state(client)
-    assert [p["handle"] for p in s["pages"]] == ["podcastbawaal", "billikalesh"]
+    assert [p["handle"] for p in s["pages"]] == ["podcastbawaal", "tech_bawaal"]
     p = s["pages"][0]
     assert set(p) >= {"handle", "pipeline", "connected", "reconnect", "token_expires_at", "paused", "pause_reason",
                       "status_due", "recommendable", "status_checked_at", "metrics", "counts", "settings"}
-    assert p["pipeline"] == "clips" and s["pages"][1]["pipeline"] == "animals"
+    assert p["pipeline"] == "clips" and s["pages"][1]["pipeline"] == "clips"
     assert p["counts"] == {"draft": 1, "approved": 1, "scheduled": 1, "published": 1}
     assert p["metrics"] == {"reels": 0, "median_views": None, "non_follower_share": None}
     assert p["settings"]["window"] == [9, 23] and p["settings"]["daily_target"] == 1
@@ -165,7 +165,7 @@ def test_account_status_reminder_after_seven_days(client, d):
     d.commit()
     assert all(p["status_due"] for p in state(client)["pages"])
     client.post("/api/pages/podcastbawaal/status", json={"recommendable": True})
-    client.post("/api/pages/billikalesh/status", json={"recommendable": True})
+    client.post("/api/pages/tech_bawaal/status", json={"recommendable": True})
     pages = state(client)["pages"]
     assert not any(p["status_due"] for p in pages) and all(p["recommendable"] is True for p in pages)
     assert not any(p["paused"] for p in pages)
@@ -193,30 +193,31 @@ def test_links_calls_add_link(client, monkeypatch):
     assert r.status_code == 400 and r.json()["detail"] == "not an allowed source"
 
 
-def test_links_go_only_to_clip_pages(client, d):
-    r = client.post("/api/links", json={"url": "https://www.youtube.com/watch?v=abcdefghijk", "page": "billikalesh"})
+def test_links_go_only_to_clip_pages(client, d, cfg_with_podcast):
+    cfg_with_podcast.pages["tech_bawaal"].pipeline = "script"  # a non clip page
+    r = client.post("/api/links", json={"url": "https://www.youtube.com/watch?v=abcdefghijk", "page": "tech_bawaal"})
     assert r.status_code == 400 and "clip pages" in r.json()["detail"]
     assert d.execute("select count(*) from source_videos").fetchone()[0] == 0
 
 
 def test_connect_stores_the_token_and_never_shows_it(client, d, monkeypatch):
     secret = "IGAAsecret-token-123"
-    monkeypatch.setattr(ig, "me", lambda t: {"user_id": "1789", "username": "billikalesh"})
-    r = client.post("/api/pages/billikalesh/connect", json={"token": secret})
+    monkeypatch.setattr(ig, "me", lambda t: {"user_id": "1789", "username": "tech_bawaal"})
+    r = client.post("/api/pages/tech_bawaal/connect", json={"token": secret})
     assert r.status_code == 200 and secret not in r.text
-    assert d.execute("select token from pages where handle = 'billikalesh'").fetchone()[0] == secret
+    assert d.execute("select token from pages where handle = 'tech_bawaal'").fetchone()[0] == secret
     s = client.get("/api/state")
     assert secret not in s.text and "IGAA" not in s.text
-    assert next(p for p in s.json()["pages"] if p["handle"] == "billikalesh")["connected"] is True
+    assert next(p for p in s.json()["pages"] if p["handle"] == "tech_bawaal")["connected"] is True
 
 
 def test_connect_refuses_a_token_for_another_account(client, d, monkeypatch):
     secret = "IGAAother-token-456"
     monkeypatch.setattr(ig, "me", lambda t: {"user_id": "5", "username": "musubi_clip"})
-    r = client.post("/api/pages/billikalesh/connect", json={"token": secret})
-    assert r.status_code == 400 and r.json()["detail"] == "token is for @musubi_clip, not @billikalesh"
+    r = client.post("/api/pages/tech_bawaal/connect", json={"token": secret})
+    assert r.status_code == 400 and r.json()["detail"] == "token is for @musubi_clip, not @tech_bawaal"
     assert secret not in r.text
-    assert d.execute("select token from pages where handle = 'billikalesh'").fetchone()[0] is None
+    assert d.execute("select token from pages where handle = 'tech_bawaal'").fetchone()[0] is None
 
 
 def test_connect_errors_never_echo_the_token(client, monkeypatch):
@@ -225,9 +226,9 @@ def test_connect_errors_never_echo_the_token(client, monkeypatch):
     def bad(t):
         raise ig.IGError(190, None, f"Cannot parse access token {t}")
     monkeypatch.setattr(ig, "me", bad)
-    r = client.post("/api/pages/billikalesh/connect", json={"token": secret})
+    r = client.post("/api/pages/tech_bawaal/connect", json={"token": secret})
     assert r.status_code == 400 and secret not in r.text and "Cannot parse" in r.text
-    r = client.post("/api/pages/billikalesh/connect", json={"token": 12345})  # bad body: no input in the error
+    r = client.post("/api/pages/tech_bawaal/connect", json={"token": 12345})  # bad body: no input in the error
     assert r.status_code == 400 and "12345" not in r.text
 
 
@@ -274,9 +275,9 @@ def test_state_lists_problems_from_the_last_week(client, d):
               (datetime.now(UTC).isoformat(),))
     add_clip(d, "podcastbawaal", "failed", reason="ancient", created_at=(datetime.now(UTC) - timedelta(days=8)).isoformat())
     d.commit()
-    db.event(d, "billikalesh", "insights_failed", "boom 42")
-    db.event(d, "billikalesh", "insights_failed", "boom 42")
-    db.event(d, "billikalesh", "connected", "fine")
+    db.event(d, "tech_bawaal", "insights_failed", "boom 42")
+    db.event(d, "tech_bawaal", "insights_failed", "boom 42")
+    db.event(d, "tech_bawaal", "connected", "fine")
     problems = state(client)["problems"]
     text = json.dumps(problems)
     assert "layer too long" in text and "not an allowed source" in text and "ancient" not in text
@@ -315,7 +316,7 @@ def test_approve_refuses_empty_or_hashtag_heavy_captions(client, d, caption):
 def test_approve_refuses_a_caption_that_drops_a_credit(client, d):
     cid = add_draft(d)
     d.execute("update clips set caption = ? where id = ?", ("Burnout.\n\n🎙️ Video v1 via @podofficial", cid))
-    sid = add_clip(d, "billikalesh", "draft", kind="script", caption="Cats.\n\nFootage: Ann / pexels",
+    sid = add_clip(d, "tech_bawaal", "draft", kind="script", caption="Cats.\n\nFootage: Ann / pexels",
                    credits=json.dumps([{"credit": "Footage: Ann / pexels", "page_url": "https://pexels.com/v"}]))
     d.commit()
     r = client.post(f"/api/clips/{cid}/approve", json={"caption": "Burnout."})

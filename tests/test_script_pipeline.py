@@ -27,7 +27,7 @@ def test_script_prompt_lists_used_ideas_and_validates_beats(cfg, monkeypatch):
     seen = {}
     monkeypatch.setattr(llm, "ask", lambda p, s: (seen.setdefault("p", p), make_script(4))[1])
     with pytest.raises(ValueError, match="5 to 7 beats"):
-        writing.write_script(cfg.pages["billikalesh"], ["why cats knead"])
+        writing.write_script(cfg.pages["tech_bawaal"], ["why cats knead"])
     assert "why cats knead" in seen["p"]
 
 
@@ -131,7 +131,7 @@ def clip(d, i):
 @pytest.fixture
 def cfg():
     c = config.load()
-    c.pages["billikalesh"].pipeline = "script"  # billikalesh runs animals now; these tests run a script page
+    c.pages["tech_bawaal"].pipeline = "script"  # tech_bawaal is a clips page; these tests run a script page
     return c
 
 
@@ -143,7 +143,7 @@ def home(tmp_path, monkeypatch):
 
 def test_make_reel_stores_claims_credits_and_a_draft(d, cfg, local_store, home, monkeypatch):
     seen = patch_reel(monkeypatch)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     row = clip(d, i)
     assert (row["status"], row["kind"]) == ("draft", "script"), row["reason"]
     assert len(json.loads(row["credits"])) == 6
@@ -156,13 +156,13 @@ def test_make_reel_stores_claims_credits_and_a_draft(d, cfg, local_store, home, 
     meta = json.loads((workdir / "meta.json").read_text())
     assert meta["transcript_source"] == "polly" and meta["duration"] == 31.0
     assert json.loads((workdir / "transcript.json").read_text())["source"] == "polly"
-    assert kw["music"] is None and kw["theme"] == cfg.pages["billikalesh"].theme
+    assert kw["music"] is None and kw["theme"] == cfg.pages["tech_bawaal"].theme
     assert len(seen["montage"][1]) == 6
 
 
 def test_script_too_long_fails_the_reel(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch, seconds=55.0)
-    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"]))
+    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"]))
     assert row["status"] == "failed" and "script length" in row["reason"]
 
 
@@ -174,7 +174,7 @@ def good_video(monkeypatch):
 
 def test_a_broken_stored_shot_reuses_its_neighbour(d, cfg, local_store, home, tmp_path, monkeypatch):
     seen = patch_reel(monkeypatch, shots=False)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     cc_footage(tmp_path, i, {0, 1, 2, 3, 4, 5})
     bad = tmp_path / "bad.mp4"
     bad.write_bytes(b"broken")
@@ -190,7 +190,7 @@ def test_a_broken_stored_shot_reuses_its_neighbour(d, cfg, local_store, home, tm
 def test_reel_waits_for_cc_footage_then_finishes(d, cfg, local_store, home, tmp_path, monkeypatch):
     patch_reel(monkeypatch, shots=False)
     script_pipeline.step(d, cfg)
-    row = d.execute("select * from clips where page = 'billikalesh'").fetchone()
+    row = d.execute("select * from clips where page = 'tech_bawaal'").fetchone()
     assert row["status"] == "waiting_footage"
     jobs = store.get_json("jobs/cc.json")
     assert [j["key"] for j in jobs] == [f"{row['id']}-{b}" for b in range(6)]
@@ -221,7 +221,7 @@ def cc_footage(tmp_path, i, have):
 
 def test_a_none_beat_reuses_the_previous_shot_and_credits_once(d, cfg, local_store, home, tmp_path, monkeypatch):
     seen = patch_reel(monkeypatch, shots=False)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     cc_footage(tmp_path, i, {0, 1, 3, 4, 5})
     script_pipeline.step(d, cfg)
     row = clip(d, i)
@@ -235,7 +235,7 @@ def test_a_none_beat_reuses_the_previous_shot_and_credits_once(d, cfg, local_sto
 
 def test_a_none_first_beat_reuses_the_next_shot(d, cfg, local_store, home, tmp_path, monkeypatch):
     seen = patch_reel(monkeypatch, shots=False)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     cc_footage(tmp_path, i, {1, 2, 3, 4, 5})
     script_pipeline.step(d, cfg)
     assert clip(d, i)["status"] == "draft"
@@ -245,7 +245,7 @@ def test_a_none_first_beat_reuses_the_next_shot(d, cfg, local_store, home, tmp_p
 
 def test_all_beats_none_fails_the_waiting_reel(d, cfg, local_store, home, tmp_path, monkeypatch):
     patch_reel(monkeypatch, shots=False)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     cc_footage(tmp_path, i, set())
     script_pipeline.step(d, cfg)
     row = clip(d, i)
@@ -256,19 +256,19 @@ def test_step_makes_no_new_reel_while_one_waits(d, cfg, local_store, home, monke
     patch_reel(monkeypatch, shots=False)
     script_pipeline.step(d, cfg)
     script_pipeline.step(d, cfg)
-    assert d.execute("select count(*) from clips where page = 'billikalesh'").fetchone()[0] == 1
+    assert d.execute("select count(*) from clips where page = 'tech_bawaal'").fetchone()[0] == 1
 
 
 def test_inactive_page_makes_no_reel(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch)
-    cfg.pages["billikalesh"].active = False
+    cfg.pages["tech_bawaal"].active = False
     script_pipeline.step(d, cfg)
-    assert d.execute("select count(*) from clips where page = 'billikalesh'").fetchone()[0] == 0
+    assert d.execute("select count(*) from clips where page = 'tech_bawaal'").fetchone()[0] == 0
 
 
 def test_reel_waiting_over_3_days_fails(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch, shots=False)
-    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     d.execute("update clips set created_at = ? where id = ?", ((datetime.now(UTC) - timedelta(days=4)).isoformat(), i))
     script_pipeline.step(d, cfg)
     row = clip(d, i)
@@ -277,11 +277,11 @@ def test_reel_waiting_over_3_days_fails(d, cfg, local_store, home, monkeypatch):
 
 def test_waiting_reel_shots_count_as_used(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch)
-    d.execute("insert into clips (page, kind, status, script) values ('billikalesh', 'script', 'waiting_footage', ?)",
+    d.execute("insert into clips (page, kind, status, script) values ('tech_bawaal', 'script', 'waiting_footage', ?)",
               (json.dumps({"idea": "dogs", "shots": [{"provider": "pexels", "id": "7"}]}),))
     seen = []
     monkeypatch.setattr(script_pipeline, "search_footage", lambda q, s, used: seen.append(set(used)))
-    script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"])
     assert "pexels:7" in seen[0]
 
 
@@ -385,14 +385,14 @@ def test_montage_is_vertical_and_as_long_as_the_voice(tmp_path):
 
 
 def test_old_clip_credits_on_a_script_page_are_ignored(d, cfg, local_store, home, monkeypatch):
-    d.execute("insert into clips (page, kind, status, credits) values ('billikalesh', 'clip', 'draft', ?)",
+    d.execute("insert into clips (page, kind, status, credits) values ('tech_bawaal', 'clip', 'draft', ?)",
               (json.dumps(["🎙️ Some podcast"]),))
-    assert script_pipeline._used(d, "billikalesh") == set()
+    assert script_pipeline._used(d, "tech_bawaal") == set()
 
 
 def test_a_recent_failure_waits_an_hour(d, cfg, local_store, home, monkeypatch):
     patch_reel(monkeypatch)
-    d.execute("insert into clips (page, kind, status, created_at) values ('billikalesh', 'script', 'failed', ?)",
+    d.execute("insert into clips (page, kind, status, created_at) values ('tech_bawaal', 'script', 'failed', ?)",
               ((datetime.now(UTC) - timedelta(minutes=10)).isoformat(),))
     script_pipeline.step(d, cfg)
     assert d.execute("select count(*) from clips").fetchone()[0] == 1
@@ -406,8 +406,8 @@ def test_no_stock_keys_sends_every_beat_to_cc(d, cfg, local_store, home, monkeyp
     monkeypatch.delenv("PEXELS_KEY", raising=False)
     monkeypatch.delenv("PIXABAY_KEY", raising=False)
     monkeypatch.setattr(script_pipeline, "search_footage", lambda q, s, used: None)
-    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"]))
+    row = clip(d, script_pipeline.make_reel(d, cfg, cfg.pages["tech_bawaal"]))
     assert row["status"] == "waiting_footage"
     assert {s["provider"] for s in json.loads(row["script"])["shots"]} == {"cc"}
-    events = d.execute("select kind, detail from events where page = 'billikalesh'").fetchall()
+    events = d.execute("select kind, detail from events where page = 'tech_bawaal'").fetchall()
     assert [tuple(e) for e in events] == [("no_stock_keys", "using Creative Commons footage")]

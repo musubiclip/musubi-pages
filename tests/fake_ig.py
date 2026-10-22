@@ -11,7 +11,7 @@ class FakeIG:
         self.reject_trial = reject_trial
         self.fail_create = None
         self.fail_publish = None
-        self.me_result = me or {"user_id": "1789", "username": "billikalesh", "account_type": "MEDIA_CREATOR",
+        self.me_result = me or {"user_id": "1789", "username": "tech_bawaal", "account_type": "MEDIA_CREATOR",
                                 "followers_count": 0}
         self.insights = insights or {"views": 100, "reach": 80, "likes": 5, "comments": 1, "saved": 2, "shares": 3,
                                      "ig_reels_avg_watch_time": 4000}

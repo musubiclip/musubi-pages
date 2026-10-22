@@ -309,8 +309,9 @@ def test_an_engine_failure_fails_the_clip_and_the_run_goes_on(d, cfg_with_podcas
 
 
 def test_links_only_go_to_clip_pages(d, cfg_with_podcast, local_store):
+    cfg_with_podcast.pages["tech_bawaal"].pipeline = "script"  # a non clip page
     with pytest.raises(ValueError, match="links only go to clip pages"):
-        clips_pipeline.add_link(d, cfg_with_podcast, "https://youtu.be/eee", "billikalesh", "ok")
+        clips_pipeline.add_link(d, cfg_with_podcast, "https://youtu.be/eee", "tech_bawaal", "ok")
     assert status(d, "eee") is None
 
 
