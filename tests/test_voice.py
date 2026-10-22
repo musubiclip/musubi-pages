@@ -68,7 +68,7 @@ def test_say_times_words_per_sentence(monkeypatch, tmp_path):
     calls = fake_say(monkeypatch, [1.0, 2.0])
     words, seconds = voice.speak("Cats blink. It means trust", "Tara", tmp_path / "v.mp3")
     says = [c for c in calls if c[0] == "say"]
-    assert [c[:3] + c[5:] for c in says] == [["say", "-v", "Tara", "Cats blink."], ["say", "-v", "Tara", "It means trust"]]
+    assert [c[:3] + c[6:] for c in says] == [["say", "-v", "Tara", "Cats blink."], ["say", "-v", "Tara", "It means trust"]]
     assert says[0][3] == "-o" and says[0][4].endswith("0.aiff")
     concat = next(c for c in calls if c[0] == "ffmpeg")
     assert "libmp3lame" in concat and concat[-1] == str(tmp_path / "v.mp3")
@@ -83,6 +83,29 @@ def test_say_unknown_voice_raises(monkeypatch, tmp_path):
     fake_say(monkeypatch, [1.0], fail=True)
     with pytest.raises(RuntimeError, match="Nobody"):
         voice.speak("Hi.", "Nobody", tmp_path / "v.mp3")
+
+
+def test_say_keeps_tokens_with_inner_dots(monkeypatch, tmp_path):
+    calls = fake_say(monkeypatch, [2.0, 1.0])
+    text = "Cats sleep 3.5 hours a day. Really!"
+    words, _ = voice.speak(text, "Tara", tmp_path / "v.mp3")
+    assert [w["word"] for w in words] == text.split()
+    assert [c[-1] for c in calls if c[0] == "say"] == ["Cats sleep 3.5 hours a day.", "Really!"]
+
+
+def test_say_dash_sentence_is_not_an_option(monkeypatch, tmp_path):
+    calls = fake_say(monkeypatch, [1.0])
+    voice.speak("-5 degrees.", "Tara", tmp_path / "v.mp3")
+    say = next(c for c in calls if c[0] == "say")
+    assert say[-2:] == ["--", "-5 degrees."]
+
+
+@pytest.mark.parametrize("text", ["", "  ", "...!"])
+def test_say_empty_text_raises(monkeypatch, tmp_path, text):
+    calls = fake_say(monkeypatch, [1.0])
+    with pytest.raises(ValueError, match="empty text"):
+        voice.speak(text, "Tara", tmp_path / "v.mp3")
+    assert calls == []
 
 
 @pytest.mark.slow

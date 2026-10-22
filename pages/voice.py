@@ -30,13 +30,15 @@ def speak(text: str, voice: str, out: Path) -> tuple[list[dict], float]:
 
 
 def _speak_say(text: str, voice: str, out: Path) -> tuple[list[dict], float]:
-    sentences = [s.strip() for s in re.findall(r"[^.?!]+[.?!]*", text) if s.strip()]
+    if not re.search(r"\w", text):
+        raise ValueError("empty text")
+    sentences = [s for s in re.split(r"(?<=[.?!])\s+", text.strip()) if s]
     words, offset = [], 0.0
     with tempfile.TemporaryDirectory() as d:
         parts = []
         for i, sentence in enumerate(sentences):
             part = Path(d) / f"{i}.aiff"
-            if subprocess.run(["say", "-v", voice, "-o", str(part), sentence], capture_output=True).returncode:
+            if subprocess.run(["say", "-v", voice, "-o", str(part), "--", sentence], capture_output=True).returncode:
                 raise RuntimeError(f"say failed for voice {voice!r}")
             length = _seconds(part)
             # same weighting the engine uses for english.json
