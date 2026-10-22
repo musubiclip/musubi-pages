@@ -1,0 +1,294 @@
+import { useId, useState, type ReactNode } from "react"
+import { KeyRound, Link2, Pause, Play } from "lucide-react"
+import { toast } from "sonner"
+
+import { day, hour, post, when, type Page } from "@/api"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import {
+  Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Header, Label11 } from "@/parts"
+
+type Refresh = () => Promise<void>
+
+async function send(path: string, body: object | undefined, done: string, refresh: Refresh) {
+  try {
+    await post(path, body)
+    toast.success(done)
+    await refresh()
+    return true
+  } catch (e) {
+    toast.error((e as Error).message)
+    return false
+  }
+}
+
+export function PageView({ page: p, refresh }: { page: Page; refresh: Refresh }) {
+  const base = `/api/pages/${encodeURIComponent(p.handle)}`
+  const m = p.metrics
+  const theme = Object.entries(p.settings.theme)
+  const colours = theme.filter(([, v]) => v.startsWith("#"))
+  const others = theme.filter(([, v]) => !v.startsWith("#"))
+  return (
+    <>
+      <Header
+        title={`@${p.handle}`}
+        lede={
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Badge variant="plain">{p.pipeline === "clips" ? "Clip pipeline" : "Script pipeline"}</Badge>
+            {p.connected && !p.reconnect && <Badge variant="ok">Connected until {day(p.token_expires_at)}</Badge>}
+            {p.connected && p.reconnect && <Badge variant="wait">Reconnect, expires {day(p.token_expires_at)}</Badge>}
+            {!p.connected && <Badge variant="pending">{p.token_expires_at ? `Reconnect, expired ${day(p.token_expires_at)}` : "Not connected"}</Badge>}
+            {p.paused && <Badge variant="ink">Paused</Badge>}
+          </div>
+        }
+      >
+        <div className="flex flex-wrap gap-2 max-sm:w-full max-sm:[&>*]:flex-1">
+          {p.pipeline === "clips" && <AddLink handle={p.handle} refresh={refresh} />}
+          <Connect page={p} base={base} refresh={refresh} />
+        </div>
+      </Header>
+
+      <div className="flex flex-col gap-4">
+        {p.paused && (
+          <Card className="flex-row flex-wrap items-center gap-4 border-foreground p-5" role="status">
+            <Pause className="size-5 shrink-0" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Paused since {when(p.paused_at)}</p>
+              <p className="text-muted-foreground">{sentence(p.pause_reason || "no reason recorded")}. Nothing posts until you unpause.</p>
+            </div>
+            <Button variant="outline" className="max-sm:w-full" onClick={() => send(`${base}/unpause`, undefined, `@${p.handle} unpaused`, refresh)}>
+              <Play aria-hidden="true" /> Unpause
+            </Button>
+          </Card>
+        )}
+
+        {p.status_due && <StatusCheck page={p} base={base} refresh={refresh} />}
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Stat label="Reels in 28 days" value={m.reels.toLocaleString("en-IN")} note="Published through the tool" />
+          <Stat label="Median views" value={m.median_views?.toLocaleString("en-IN")}
+            note={m.median_views === null ? "Shows once reels have insights" : "Per reel, 7 day count when there is one"} />
+          <Stat label="Non follower share"
+            value={m.non_follower_share === null ? undefined : `${Math.round(m.non_follower_share * 100)}%`}
+            note={m.non_follower_share === null ? "The API has not reported it yet" : "Of account views, last 28 days"} />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="gap-4">
+            <CardHead title="Queue" aside={p.counts.draft > 0 && (
+              <a href="#/" className="text-sm font-medium underline underline-offset-4 hover:text-muted-foreground">Review drafts</a>
+            )} />
+            <dl className="mx-5 grid grid-cols-2 gap-px overflow-hidden rounded-[10px] border bg-border max-sm:mx-4 sm:grid-cols-4">
+              {([["Drafts", p.counts.draft], ["Approved", p.counts.approved], ["Scheduled", p.counts.scheduled],
+                ["Published", p.counts.published]] as const).map(([k, v]) => (
+                <div key={k} className="flex flex-col gap-0.5 bg-card px-4 py-3">
+                  <dt className="text-xs text-muted-foreground">{k}</dt>
+                  <dd className="tnum text-xl font-bold">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="px-5 text-sm text-muted-foreground max-sm:px-4">
+              Account Status: {p.recommendable === null ? "not checked yet" : p.recommendable ? "recommendable" : "not recommendable"}
+              {p.status_checked_at && `, checked ${when(p.status_checked_at)}`}
+            </p>
+          </Card>
+
+          <Card className="gap-4">
+            <CardHead title="Settings" aside={<span className="text-xs text-muted-foreground">Read only, from pages.toml</span>} />
+            <dl className="grid grid-cols-[8.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 px-5 text-sm max-sm:grid-cols-1 max-sm:gap-y-1 max-sm:px-4">
+              <Row k="Voice">{p.settings.voice}</Row>
+              <Row k="Posting window">{hour(p.settings.window[0])} to {hour(p.settings.window[1])} IST</Row>
+              <Row k="Daily target">{p.settings.daily_target} {p.settings.daily_target === 1 ? "reel" : "reels"} a day</Row>
+              <Row k="Theme colours">
+                <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {colours.map(([k, v]) => (
+                    <span key={k} className="inline-flex items-center gap-2">
+                      <span className="size-5 rounded-md border" style={{ background: v }} aria-hidden="true" />
+                      <span><span className="text-muted-foreground">{k}</span> <span className="tnum">{v}</span></span>
+                    </span>
+                  ))}
+                </span>
+              </Row>
+              {others.map(([k, v]) => <Row key={k} k={`Theme ${k}`}>{v}</Row>)}
+            </dl>
+          </Card>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function CardHead({ title, aside }: { title: string; aside?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 px-5 max-sm:px-4">
+      <h2 className="text-base font-semibold">{title}</h2>
+      {aside}
+    </div>
+  )
+}
+
+function Row({ k, children }: { k: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground max-sm:mt-2 max-sm:first:mt-0">{k}</dt>
+      <dd className="font-medium">{children}</dd>
+    </>
+  )
+}
+
+const sentence = (s: string) => s[0].toUpperCase() + s.slice(1)
+
+function Stat({ label, value, note }: { label: string; value?: string; note: string }) {
+  return (
+    <Card className="gap-1 px-5 py-4">
+      <Label11>{label}</Label11>
+      {value === undefined ? (
+        <p className="flex h-[1.9rem] items-end text-lg leading-none font-semibold text-muted-foreground">No data yet</p>
+      ) : (
+        <p className="tnum text-[1.9rem] leading-none font-bold tracking-[-0.02em]">{value}</p>
+      )}
+      <p className="mt-1.5 text-xs text-muted-foreground">{note}</p>
+    </Card>
+  )
+}
+
+function StatusCheck({ page: p, base, refresh }: { page: Page; base: string; refresh: Refresh }) {
+  const answer = (yes: boolean) =>
+    send(`${base}/status`, { recommendable: yes }, yes ? "Account Status saved" : `@${p.handle} paused`, refresh)
+  return (
+    <Card className="gap-4 border-[color-mix(in_oklab,var(--blue)_30%,#fff)] bg-accent p-5" role="region" aria-label="Account Status check">
+      <div>
+        <p className="font-semibold">Account Status check due</p>
+        <p className="mt-1 text-muted-foreground">
+          In the Instagram app open Settings, then Account Status, for @{p.handle}.{" "}
+          {p.status_checked_at ? `Last checked ${when(p.status_checked_at)}.` : "Not checked before."}
+        </p>
+      </div>
+      <p className="font-semibold">Can this page's content be recommended?</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button className="max-sm:flex-1" onClick={() => answer(true)}>Yes</Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" className="max-sm:flex-1">No</Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Pause @{p.handle}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Instagram says this page's content cannot be recommended. Pausing stops all posting and moves scheduled
+                reels back to approved. Review the last 30 days before you unpause.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel variant="ghost">Cancel</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => answer(false)}>Pause the page</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <span className="text-sm text-muted-foreground">No pauses the page.</span>
+      </div>
+    </Card>
+  )
+}
+
+function Connect({ page: p, base, refresh }: { page: Page; base: string; refresh: Refresh }) {
+  const [open, setOpen] = useState(false)
+  const [token, setToken] = useState("")
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = token.trim()
+    setToken("") // never kept around, whatever the answer
+    setBusy(true)
+    if (await send(`${base}/connect`, { token: t }, `@${p.handle} connected`, refresh)) setOpen(false)
+    setBusy(false)
+  }
+  const label = p.connected ? "Reconnect" : "Connect"
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); setToken("") }}>
+      <DialogTrigger asChild>
+        <Button variant={p.reconnect ? "default" : "outline"}><KeyRound aria-hidden="true" /> {label}</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <form onSubmit={submit} className="grid gap-5">
+          <DialogHeader>
+            <DialogTitle>{label} @{p.handle}</DialogTitle>
+            <DialogDescription>Paste a long lived Instagram access token for this page. It is checked against the account before it is saved.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-token`}>Access token</Label>
+            <Input id={`${id}-token`} type="password" value={token} onChange={(e) => setToken(e.target.value)}
+              autoComplete="off" spellCheck={false} required aria-describedby={`${id}-help`} />
+            <p id={`${id}-help`} className="text-[13px] text-muted-foreground">
+              Generate it in the Meta app dashboard, under Instagram API setup, signed in as @{p.handle}. It is never shown again.
+            </p>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="ghost">Cancel</Button></DialogClose>
+            <Button type="submit" disabled={!token.trim() || busy}>{busy ? "Checking" : label}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AddLink({ handle, refresh }: { handle: string; refresh: Refresh }) {
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState("")
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    if (await send("/api/links", { url: url.trim(), page: handle, note: note.trim() }, "Link added. It is fetched on the next run.", refresh)) {
+      setOpen(false)
+      setUrl("")
+      setNote("")
+    }
+    setBusy(false)
+  }
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline"><Link2 aria-hidden="true" /> Add link</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <form onSubmit={submit} className="grid gap-5">
+          <DialogHeader>
+            <DialogTitle>Add a video to @{handle}</DialogTitle>
+            <DialogDescription>A YouTube video from one of this page's allowed sources, or any video you have permission for.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-url`}>YouTube link</Label>
+            <Input id={`${id}-url`} type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=" required />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-note`}>One off permission note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Input id={`${id}-note`} value={note} onChange={(e) => setNote(e.target.value)} aria-describedby={`${id}-note-help`}
+              placeholder="Guest sent it on email, 22 Oct" />
+            <p id={`${id}-note-help`} className="text-[13px] text-muted-foreground">
+              Only for a video outside the allowed sources: who allowed it and how.
+            </p>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="ghost">Cancel</Button></DialogClose>
+            <Button type="submit" disabled={!url.trim() || busy}>{busy ? "Adding" : "Add link"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
