@@ -106,4 +106,8 @@ def url(key: str, seconds: int = 3600) -> str:
     s3, where = _backend()
     if s3:
         return s3.generate_presigned_url("get_object", Params={"Bucket": where, "Key": key}, ExpiresIn=seconds)
+    public = os.environ.get("PAGES_PUBLIC_URL", "").rstrip("/")
+    if public and key.startswith("clips/"):
+        # local publishing: a tunnel serves only the rendered clips folder, so Instagram can fetch the video
+        return f"{public}/{key.removeprefix('clips/')}"
     return f"/files/{key}"

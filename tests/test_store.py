@@ -30,3 +30,10 @@ def test_local_keys_cannot_escape_the_store(local_store, tmp_path):
             store.get(key, tmp_path / "out.txt")
         with pytest.raises(ValueError):
             store.put(key, f)
+
+
+def test_public_url_only_for_clips(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAGES_STORE", str(tmp_path / "s"))
+    monkeypatch.setenv("PAGES_PUBLIC_URL", "https://x.trycloudflare.com/")
+    assert store.url("clips/15.mp4") == "https://x.trycloudflare.com/15.mp4"
+    assert store.url("backups/pages-2026-10-23.db") == "/files/backups/pages-2026-10-23.db"
