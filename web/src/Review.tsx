@@ -69,13 +69,21 @@ function DraftCard({ d, act }: { d: Draft; act: Act }) {
       <article aria-labelledby={`${id}-hook`} className="grid gap-5 p-4 sm:p-5 md:grid-cols-[270px_minmax(0,1fr)] md:gap-7">
         <div className="md:sticky md:top-5 md:self-start">
           {d.video_url ? (
-            <video src={d.video_url} controls preload="metadata" playsInline
+            <video src={d.video_url} poster={d.cover_url ?? undefined} controls preload="metadata" playsInline
               aria-label={`Reel for @${d.page}: ${d.hook ?? "no hook"}`}
               className="aspect-[9/16] w-full rounded-[10px] bg-foreground object-cover" />
           ) : (
             <div className="grid aspect-[9/16] w-full place-items-center rounded-[10px] bg-muted text-muted-foreground">
               <span className="flex flex-col items-center gap-2 text-sm"><VideoOff aria-hidden="true" /> No video file</span>
             </div>
+          )}
+          {d.cover_url && (
+            <figure className="mt-3 flex items-center gap-3">
+              <a href={d.cover_url} target="_blank" rel="noreferrer" className="shrink-0">
+                <img src={d.cover_url} alt={`Cover for reel #${d.id}`} className="aspect-[9/16] w-20 rounded-[8px] border object-cover" />
+              </a>
+              <figcaption className="text-xs text-muted-foreground">Cover<br />shown on the grid and sent to Instagram</figcaption>
+            </figure>
           )}
         </div>
 

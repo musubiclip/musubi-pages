@@ -101,6 +101,8 @@ def test_state_shape(client, d):
     assert p["pipeline"] == "clips" and s["pages"][1]["pipeline"] == "clips"
     assert p["counts"] == {"draft": 1, "approved": 1, "scheduled": 1, "published": 1}
     assert p["metrics"] == {"reels": 0, "median_views": None, "non_follower_share": None}
+    assert sorted(r["status"] for r in p["reels"]) == ["approved", "published", "scheduled"]
+    assert set(p["reels"][0]) >= {"id", "kind", "hook", "video_url", "cover_url", "scheduled_at", "permalink"}
     assert p["settings"]["window"] == [9, 23] and p["settings"]["daily_target"] == 1
     assert p["settings"]["voice"] and p["settings"]["theme"]["hot"]
     assert p["connected"] is False and p["reconnect"] is True and p["paused"] is False

@@ -25,14 +25,15 @@ VISUAL_BEATS = (2, 8)  # shot length in beats, visual montages
 REEL_SECONDS = (15, 30)
 HOOK_MIN = 1.5  # the opening shot holds the headline at least this long; the drop lands on its cut
 TEXT_BEAT_WORDS = 5
-LEAD, TAIL = 0.12, 0.15  # air around a spoken line
+LEAD, TAIL = 0.2, 0.3  # air around a spoken line, so no word starts or ends clipped
 # mix levels (HyperFrames volumes; the beds are mastered to -14 LUFS, the whole mix is normalised after)
 VISUAL_MUSIC, VISUAL_FOOTAGE = 1.0, 0.12  # the music carries a visual montage; machines and ambience stay faint
 SPEECH_MUSIC, SPEECH_DUCK = 0.60, 0.45  # level B: the bass stays clearly audible under the voices
 SPEECH_FOOTAGE = 1.0
 TARGET_LUFS = -14
+EASE_IN, EASE_OUT = 0.3, 0.7  # seconds the reel fades in from black and out at the end, picture and sound
 TRANSITIONS = {"visual": ("whip", "zoom", "flash", "glitch", "shake", "ramp"),
-               "speech": ("slam", "whipflash", "glitchzoom")}  # every rapid fire cut is a full hit with a sound
+               "speech": ("zoomblur", "whip", "glitchzoom")}  # every rapid fire cut is a clean hit with a sound
 SMALL_FACE, WIDE_SHOT_KEEP = 0.06, 0.55  # a face under 6% of the width is a wide shot: crop to 55% of the height
 OUT_W, OUT_H = clipper.OUT_W, clipper.OUT_H
 SFX_GAP = 2.0  # seconds between transition sound effects
@@ -177,7 +178,7 @@ def sfx_cues(cuts, kinds):
     """Impact on the drop, whoosh on whips; never closer than SFX_GAP, so not every cut gets a sound."""
     cues, last = [], -SFX_GAP
     for t, kind in zip(cuts, kinds):
-        name = {"drop": "impact", "slam": "impact", "glitchzoom": "impact", "whip": "whoosh", "whipflash": "whoosh"}.get(kind)
+        name = {"drop": "impact", "zoomblur": "impact", "glitchzoom": "impact", "whip": "whoosh"}.get(kind)
         if name and t - last >= SFX_GAP:
             at = max(0.0, t - (0.12 if name == "whoosh" else 0.0))
             cues.append((name, round(at, 3)))
@@ -256,7 +257,7 @@ def build_base(segments, p, kinds, out, mode):
                      f"{dur + beat:.4f},asetpts=PTS-STARTPTS,atempo=2[r{i}b];[r{i}a][r{i}b]concat=n=2:v=0:a=1,"
                      if ramp else f"[{k}:a]")
             parts.append(f"{audio}aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:{dur:.4f},"
-                         f"asetpts=PTS-STARTPTS,afade=t=in:d=0.02,afade=t=out:st={max(0, dur - 0.05):.4f}:d=0.05[a{i}]")
+                         f"asetpts=PTS-STARTPTS,afade=t=in:d=0.06,afade=t=out:st={max(0, dur - 0.12):.4f}:d=0.12[a{i}]")
         else:
             parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{dur:.4f}[a{i}]")
     n = len(p["counts"])
@@ -288,7 +289,8 @@ def normalise(src, out, target=TARGET_LUFS):
     clipper.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-c:v", "copy", "-af",
                  f"loudnorm=I={target}:TP=-1.0:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
                  f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true,"
-                 "aresample=48000,alimiter=limit=0.84:level=false", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
+                 f"aresample=48000,alimiter=limit=0.84:level=false,afade=t=in:d={EASE_IN},"
+                 f"afade=t=out:st={max(0, clipper.duration_of(src) - EASE_OUT):.3f}:d={EASE_OUT}", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
 
 
 def render_montage(segments, out, *, music, theme=None, hook_style="headline", brand_tag="", headline="", accent=(),
@@ -332,10 +334,7 @@ def _render_montage(segments, out, music, theme, brand_tag, headline, accent, te
             "brand_tag": brand_tag, "hook_end": hook_end, "beat": round(p["period"], 4), "bpm": grid["bpm"],
             "cuts": [{"t": t, "kind": k} for t, k in zip(inner, kinds)],
             "text_beats": text_beat_times(text_beats, p["downbeats"], hook_end, duration),
-            "words": [{"t": w["word"], "s": w["start"], "e": w["end"]} for w in timeline], "groups": groups,
-            # speech: a small punch on each downbeat inside a long line, so the picture keeps hitting with the bass
-            "pulses": [t for t in p["downbeats"] if hook_end < t < duration - 0.3 and all(abs(t - c) > 0.45 for c in inner)]
-            if mode == "speech" else []}
+            "words": [{"t": w["word"], "s": w["start"], "e": w["end"]} for w in timeline], "groups": groups}
     footage = SPEECH_FOOTAGE if mode == "speech" else VISUAL_FOOTAGE
     tags = (f'<audio id="bg-audio" src="base.mp4" data-start="0" data-duration="{duration}" data-track-index="10" '
             f'data-volume="{footage}"></audio>')
@@ -349,6 +348,7 @@ def _render_montage(segments, out, music, theme, brand_tag, headline, accent, te
     for i, (name, t) in enumerate(c for c in sfx_cues(inner, kinds) if c[1] < duration - 0.2):
         tags += (f'<audio id="sfx-{i}" src="sfx/{name}.mp3" data-start="{t}" data-duration="{min(clipper.sfx_seconds(name), round(duration - t, 3))}" '
                  f'data-track-index="{20 + i}" data-volume="{clipper.SFX_VOLUME[name]}"></audio>')
+    reel["ease"] = [EASE_IN, EASE_OUT]
     html = clipper.reel_page(reel, TEMPLATE, duration, duration, tags, theme)
     (project / "index.html").write_text(encoding="utf-8", data=html)
     (project / "plan.json").write_text(encoding="utf-8", data=json.dumps({**p, "bpm": grid["bpm"], "kinds": kinds}))

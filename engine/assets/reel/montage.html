@@ -151,6 +151,12 @@
         tl.fromTo("#punch", { scale: amount }, { scale: 1, duration: 0.34, ease: "expo.out", immediateRender: false }, t);
       }
 
+      function zoomblur(tl, t) {
+        // push into a soft blur on the old shot, land the new one sharp out of the same blur
+        tl.to("#punch", { scale: 1.25, filter: "blur(14px)", duration: 0.14, ease: "power2.in" }, t - 0.14);
+        tl.fromTo("#punch", { scale: 1.25, filter: "blur(14px)" }, { scale: 1, filter: "blur(0px)", duration: 0.32, ease: "expo.out", immediateRender: false }, t);
+      }
+
       function ramp(tl, t) {
         // the shot's last beat plays at double speed (cut in the base video); push in while it rushes
         tl.to("#punch", { scale: 1.2, duration: B, ease: "power2.in" }, t - B);
@@ -168,9 +174,8 @@
         glitch: (tl, t) => glitch(tl, t - 0.04, 0.3, 34),
         shake: (tl, t) => { shake(tl, "#root", t, 24); tl.fromTo("#punch", { scale: 1.12 }, { scale: 1, duration: 0.25, ease: "power3.out", immediateRender: false }, t); },
         ramp: (tl, t) => ramp(tl, t),
-        slam: (tl, t) => { flash(tl, t, 0.85, 0.24); zoom(tl, t, 1.38); shake(tl, "#root", t + FRAME, 22); },
-        whipflash: (tl, t, i) => { whip(tl, t, i % 2 ? 1 : -1); flash(tl, t, 0.6, 0.18); },
-        glitchzoom: (tl, t) => { glitch(tl, t - 0.04, 0.26, 30); zoom(tl, t, 1.3); },
+        zoomblur: (tl, t) => zoomblur(tl, t),
+        glitchzoom: (tl, t) => { glitch(tl, t - 0.03, 0.18, 22); zoom(tl, t, 1.18); },
       };
 
       function buildHeadline(tl) {
@@ -251,10 +256,11 @@
         tl.fromTo("#progress-fill", { scaleX: 0 }, { scaleX: 1, duration: D, ease: "none" }, 0);
         buildHeadline(tl);
         DATA.cuts.forEach((c, i) => TRANSITIONS[c.kind](tl, c.t, i));
-        (DATA.pulses || []).forEach((t) => tl.fromTo("#punch", { scale: 1.06 }, { scale: 1, duration: 0.3, ease: "power2.out", immediateRender: false }, t));
         buildBeats(tl);
         buildCaptions(tl);
-        tl.fromTo("#fadeout", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power2.in" }, Math.max(0, D - 0.3));
+        const [easeIn, easeOut] = DATA.ease || [0, 0.3];
+        if (easeIn) tl.fromTo("#fadeout", { opacity: 1 }, { opacity: 0, duration: easeIn, ease: "power1.out", immediateRender: false }, 0);
+        tl.fromTo("#fadeout", { opacity: 0 }, { opacity: 1, duration: easeOut, ease: "power1.in", immediateRender: false }, Math.max(0, D - easeOut));
         tl.seek(0);
         window.__timelines["reel"] = tl;
       }

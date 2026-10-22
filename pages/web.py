@@ -88,8 +88,21 @@ def _page(db, cfg, handle, now):
             "status_checked_at": p["status_checked_at"],
             "metrics": insights.page_metrics(db, handle, now),
             "counts": {k: counts.get(k, 0) for k in ("draft", "approved", "scheduled", "published")},
+            "reels": [_reel(r) for r in db.execute(
+                "select * from clips where page = ? and status in ('approved', 'scheduled', 'publishing', 'published') "
+                "order by coalesce(published_at, scheduled_at, created_at) desc limit 60", (handle,))],
             "settings": {"voice": c.voice, "window": list(c.window), "daily_target": c.daily_target,
                          "theme": c.theme}}
+
+
+def _reel(c):
+    """An approved, scheduled or published reel, as the page view's grid shows it."""
+    moment = _json(c["moment"], {})
+    return {"id": c["id"], "kind": c["kind"], "status": "scheduled" if c["status"] == "publishing" else c["status"],
+            "hook": moment.get("hook_text") or moment.get("headline") or _json(c["script"], {}).get("hook_text"),
+            "video_url": store.url(c["file_key"], 3600) if c["file_key"] else None,
+            "cover_url": store.url(c["cover_key"], 3600) if c["cover_key"] else None,
+            "scheduled_at": c["scheduled_at"], "published_at": c["published_at"], "permalink": c["permalink"]}
 
 
 def _source(src):
@@ -112,7 +125,7 @@ def _draft(db, cfg, c):
     return {"id": c["id"], "page": c["page"], "kind": c["kind"], "created_at": c["created_at"],
             "video_url": store.url(c["file_key"], 3600) if c["file_key"] else None,
             "cover_url": store.url(c["cover_key"], 3600) if c["cover_key"] else None,
-            "hook": moment.get("hook_text") or script.get("hook_text"),
+            "hook": moment.get("hook_text") or moment.get("headline") or script.get("hook_text"),
             "layer": {k: layer.get(k) for k in ("intro", "takeaway", "cards")} if layer else None,
             "flags": layer.get("flags") or script.get("flags") or [], "claims": script.get("claims", []),
             "credits": [_credit(x) for x in _json(c["credits"], [])], "caption": c["caption"] or "",
