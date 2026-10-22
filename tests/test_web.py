@@ -98,7 +98,7 @@ def test_state_shape(client, d):
     p = s["pages"][0]
     assert set(p) >= {"handle", "pipeline", "connected", "reconnect", "token_expires_at", "paused", "pause_reason",
                       "status_due", "recommendable", "status_checked_at", "metrics", "counts", "settings"}
-    assert p["pipeline"] == "clips" and s["pages"][1]["pipeline"] == "script"
+    assert p["pipeline"] == "clips" and s["pages"][1]["pipeline"] == "animals"
     assert p["counts"] == {"draft": 1, "approved": 1, "scheduled": 1, "published": 1}
     assert p["metrics"] == {"reels": 0, "median_views": None, "non_follower_share": None}
     assert p["settings"]["window"] == [9, 23] and p["settings"]["daily_target"] == 1
