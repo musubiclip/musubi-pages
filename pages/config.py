@@ -20,6 +20,7 @@ class Page:
     music: list[str] = field(default_factory=list)
     clips_per_video: int = 3
     topics: str = ""
+    sfx: bool = True  # sound effects on the hook, cards and cuts (clip pages)
     active: bool = True
     queries: list[str] = field(default_factory=list)  # YouTube searches for the animals pipeline
 

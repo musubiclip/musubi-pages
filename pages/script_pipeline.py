@@ -1,7 +1,6 @@
 """Script first reels: Claude writes, Polly speaks, stock or CC footage underneath, the engine renders."""
 import json
 import os
-import random
 import subprocess
 import tempfile
 import urllib.parse
@@ -198,10 +197,7 @@ def _finish(db, page, clip_id: int) -> None:
     moment = {"start": 0.0, "end": seconds, "title": script.title, "hook_text": script.hook_text,
               "reason": script.idea, "emphasis": [], "hook": 3, "standalone": 3, "payoff": 3, "emotion": 3}
     (workdir / "moments.json").write_text(json.dumps([moment]))
-    music = None
-    if page.music:
-        key = random.choice(page.music)
-        music = store.get(key, tmp / Path(key).name)
+    music = store.music_bed(page.music, tmp)
     os.environ["MUSUBI_CLIPS_OFFLINE"] = "1"
     out = clipper.render_one(workdir, moment, tmp / "reel.mp4", theme=page.theme, music=music)
     file_key = f"clips/{clip_id}.mp4"

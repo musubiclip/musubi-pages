@@ -1,7 +1,6 @@
 """Clip pipeline (podcastbawaal): jobs for the Mac, intake, pasted links, moment picking, making clips."""
 import json
 import os
-import random
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +10,8 @@ from pages.db import QUEUE_LOW, queue_size
 from engine import clipper
 
 MUSIC_TAGS = ("[Music]", "[संगीत]", "♪")
+CLIP_SECONDS = (15, 30)  # as played: after silence trimming, cold open included
+RAW_MAX = 36  # a picked span may run longer than 30 s by the pauses trimmed out of it
 
 
 def _now() -> str:
@@ -127,6 +128,23 @@ def music_spans(json3_text: str) -> list[tuple[float, float]]:
     return spans
 
 
+def strongest_hook(m: dict) -> dict | None:
+    """Keep the best scored hook candidate (at most 8 words, no dashes); None when no usable hook is left."""
+    ok = lambda t: 0 < len(t.split()) <= 8 and not re.search(r"[–—]| - ", t)
+    best = max((c for c in m.get("hook_candidates") or [] if ok(c["text"])), key=lambda c: c["score"], default=None)
+    if best and best["text"].strip() != m["hook_text"].strip():
+        m = {**m, "hook_text": best["text"].strip(), "hook_parts": None}  # the parts were split for another hook
+    return m if ok(m["hook_text"]) else None
+
+
+def cold_open(m: dict) -> tuple[float | None, float | None]:
+    """The cold open when it is a 2 to 5 s line inside the moment (past its first second), else none."""
+    cs, ce = m.get("cold_open_start"), m.get("cold_open_end")
+    if cs is not None and ce is not None and m["start"] + 1 < cs < ce <= m["end"] and 2 <= ce - cs <= 5:
+        return cs, ce
+    return None, None
+
+
 def pick(db, cfg, video_row) -> None:
     page, vid = cfg.pages[video_row["page"]], video_row["video_id"]
     workdir = _pull(vid)
@@ -134,15 +152,23 @@ def pick(db, cfg, video_row) -> None:
     transcript = json.loads((workdir / "transcript.json").read_text())
     music = [s for f in workdir.glob("captions.*.json3") for s in music_spans(f.read_text())]
     found = writing.pick_moments((workdir / "transcript.txt").read_text(), video_row["title"] or meta["title"],
-                                 page.clips_per_video)
+                                 page.clips_per_video, topics=writing._topics(page))
+    words = clipper.all_words(transcript)
     good = []
     for m in (m.model_dump() for m in found):
-        if clipper.moment_problems([m]) or not 30 <= m["end"] - m["start"] <= 90:
+        if clipper.moment_problems([m]) or not CLIP_SECONDS[0] <= m["end"] - m["start"] <= RAW_MAX:
             continue
         if any(a < m["end"] and m["start"] < b for a, b in music):
             continue
+        m = strongest_hook(m)
+        if m is None:
+            continue
+        m["cold_open_start"], m["cold_open_end"] = cold_open(m)
+        m["skip"] = clipper.merge_spans((m.get("skip") or []) + clipper.silence_skips(words, m["start"], m["end"]))
+        m["max_seconds"] = CLIP_SECONDS[1]
         good.append(m)
-    kept = clipper.tidy_clips(good, clipper.all_words(transcript), page.clips_per_video)
+    kept = [c for c in clipper.tidy_clips(good, words, len(good))
+            if clipper.played_seconds(c) >= CLIP_SECONDS[0]][:page.clips_per_video]
     if not kept:
         _set(db, video_row, "skipped", "no usable moments")
         return
@@ -174,15 +200,14 @@ def make_clips(db, cfg, video_row) -> None:
     for clip in db.execute("select * from clips where video_id = ? and status = 'planned'", (vid,)).fetchall():
         try:
             m = json.loads(clip["moment"])
+            if clipper.speaker_share(workdir, m) < clipper.MIN_SPEAKER:
+                raise ValueError("no speaker on screen")
             text = " ".join(w["word"] for w in words if m["start"] <= w["start"] <= m["end"])
             layer = writing.write_layer(page, writing.Moment(**m), text)
-            music = None
-            if page.music:
-                key = random.choice(page.music)
-                music = store.get(key, config.HOME / "tmp" / key)
+            music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip['id']}.mp4"
             clipper.render_one(workdir, {**m, "cards": [{**c.model_dump(), "hold": 4} for c in layer.cards]}, out,
-                               theme=page.theme, intro=None, outro=None, music=music)
+                               theme=page.theme, intro=None, outro=None, music=music, sfx=page.sfx)
             key = f"clips/{clip['id']}.mp4"
             store.put(key, out)
             caption = writing.write_caption(page, f"{m['title']}. {m['reason']}", [credit], previous)

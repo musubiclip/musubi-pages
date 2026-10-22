@@ -20,7 +20,19 @@ def test_pick_moments_prompt_has_rules(monkeypatch):
     got = writing.pick_moments("[1.0-5.0] hi", "Ep 1", 2)
     assert got[0].start == 100.0
     p = seen["p"]
-    assert "30 to 90 seconds" in p and "[Music]" in p and "[1.0-5.0] hi" in p and "Ep 1" in p and "4 candidates" in p
+    assert "15 to 30 seconds" in p and "3 different hooks" in p and "[Music]" in p and "[1.0-5.0] hi" in p and "Ep 1" in p and "4 candidates" in p
+
+
+def test_pick_prompt_carries_the_scoring_and_hook_rules(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "ask", lambda p, s: (seen.setdefault("p", p), s(moments=[M()]))[1])
+    writing.pick_moments("[1.0-5.0] hi", "Ep 1", 2, topics="tech and AI")
+    p = seen["p"]
+    for rule in ("controversy 30%", "insight 35%", "engagement 20%", "topic_match 15%", "Page topics: tech and AI",
+                 "curiosity gap", "Never a summary or a label", "No emojis, hashtags or dashes", "cold_open_start",
+                 "2 to 5 second"):
+        assert rule in p
+    assert {"controversy", "insight", "engagement", "topic_match", "cold_open_start", "cold_open_end"} <= set(M().model_dump())
 
 
 def test_translate_returns_dicts(monkeypatch):
