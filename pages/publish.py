@@ -2,6 +2,7 @@ import random
 from datetime import UTC, datetime, timedelta
 
 from pages import accounts, ig, schedule, store
+from pages.schedule import IST
 from pages import db as dbm
 
 PAUSE_SUBCODES = {2207050, 2207051}
@@ -49,16 +50,16 @@ def _permitted(db, cfg, clip) -> bool:
 
 
 def publish_due(db, cfg, now: datetime) -> None:
-    # Claims use the wall clock (`now` may be a simulated tick time); a claim older than STUCK is a crash.
-    wall = datetime.now(UTC)
-    stale = (wall - STUCK).isoformat()
+    # Claims use the wall clock (`now` may be a simulated tick time), read fresh at each use: a tick can
+    # run long (wait_container), and a claim older than STUCK is taken for a crash.
+    stale = lambda: (datetime.now(UTC) - STUCK).isoformat()  # noqa: E731
     claimable = "(status = 'scheduled' or (status = 'publishing' and claimed_at <= ?))"
     due = db.execute("select id from clips where (status = 'scheduled' and scheduled_at <= ?) "
                      "or (status = 'publishing' and claimed_at <= ?) order by scheduled_at",
-                     (now.isoformat(), stale)).fetchall()
+                     (now.isoformat(), stale())).fetchall()
     for (cid,) in due:
         # Re-read each time: an earlier clip may have paused the page, or another runner claimed this one.
-        clip = db.execute(f"select * from clips where id = ? and {claimable}", (cid, stale)).fetchone()
+        clip = db.execute(f"select * from clips where id = ? and {claimable}", (cid, stale())).fetchone()
         page = _live_pages(db, now).get(clip["page"]) if clip else None
         if not page:
             continue
@@ -77,11 +78,13 @@ def publish_due(db, cfg, now: datetime) -> None:
             # No bursts after downtime: a late clip, or one too close to the last post, gets a fresh slot.
             last = db.execute("select max(published_at) from clips where page = ?", (clip["page"],)).fetchone()[0]
             late = now - datetime.fromisoformat(clip["scheduled_at"]) > timedelta(minutes=60)
-            if late or (last and now - datetime.fromisoformat(last) < timedelta(hours=3)):
+            lo, hi = cfg.pages[clip["page"]].window
+            outside = not lo <= now.astimezone(IST).hour < hi  # the window is a hard limit, whatever the slot
+            if late or outside or (last and now - datetime.fromisoformat(last) < timedelta(hours=3)):
                 _reslot(db, cfg, clip, now)
                 continue
             cur = db.execute(f"update clips set status = 'publishing', claimed_at = ? where id = ? and {claimable}",
-                             (wall.isoformat(), cid, stale))
+                             (datetime.now(UTC).isoformat(), cid, stale()))
             db.commit()
             if cur.rowcount != 1:  # another runner has it
                 continue

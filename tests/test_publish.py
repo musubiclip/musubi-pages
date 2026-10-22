@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from helpers import add_clip
 
 from pages import accounts, ig, publish, store
+from pages import db as dbm
 
 NOW = datetime(2026, 11, 2, 8, tzinfo=UTC)
 P = "billikalesh"
@@ -324,3 +325,74 @@ def test_a_clip_whose_source_was_withdrawn_is_not_published(d, cfg, fake_ig, mon
     assert fake_ig.created == []
     assert (clip(d, c)["status"], clip(d, c)["reason"]) == ("failed", "source no longer permitted")
     assert d.execute("select count(*) from events where kind='source_withdrawn'").fetchone()[0] == 1
+
+
+class Clock:
+    t = datetime.now(UTC)
+
+
+class FakeDT(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return Clock.t
+
+
+def test_a_claim_late_in_a_long_tick_is_not_born_stale(tmp_path, cfg_with_podcast, fake_ig, monkeypatch):
+    """Runner 1 spends 16 min on Y, then claims X; runner 2 ticks while runner 1 creates X's container."""
+    monkeypatch.setattr(publish, "datetime", FakeDT)
+    monkeypatch.setattr(Clock, "t", datetime.now(UTC))
+    monkeypatch.setattr(store, "url", lambda k, s=3600: "https://example.test/" + k)
+    path = tmp_path / "t.db"
+    d1 = dbm.connect(path)
+    dbm.add_pages(d1, cfg_with_podcast)
+    for h in ("billikalesh", "podcastbawaal"):
+        d1.execute("update pages set ig_user_id='1', token='tok', token_expires_at=? where handle=?",
+                   ((NOW + timedelta(days=50)).isoformat(), h))
+    d1.commit()
+    add_clip(d1, "podcastbawaal", "scheduled", kind="script", scheduled_at=(NOW - timedelta(minutes=2)).isoformat())
+    add_clip(d1, P, "scheduled", kind="script", scheduled_at=(NOW - timedelta(minutes=1)).isoformat())
+    real_wait, real_create = fake_ig.wait_container, fake_ig.create_reel
+    n = []
+
+    def wait(cid, token, **k):
+        if cid == "c1":
+            Clock.t += timedelta(minutes=16)
+        return real_wait(cid, token, **k)
+
+    def create(*a, **k):
+        n.append(1)
+        if len(n) == 2:
+            publish.publish_due(dbm.connect(path), cfg_with_podcast, NOW + timedelta(minutes=16))
+        return real_create(*a, **k)
+    monkeypatch.setattr(ig, "wait_container", wait)
+    monkeypatch.setattr(ig, "create_reel", create)
+    publish.publish_due(d1, cfg_with_podcast, NOW)
+    assert len(fake_ig.created) == 2 and len(fake_ig.published) == 2
+
+
+def test_a_claim_landing_after_the_re_read_wins(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+    real = publish._live_pages
+
+    def other_runner_claims(db, now):  # runs between the re-read and the claim update
+        db.execute("update clips set status='publishing', claimed_at=? where id=?", (datetime.now(UTC).isoformat(), c))
+        db.commit()
+        return real(db, now)
+    monkeypatch.setattr(publish, "_live_pages", other_runner_claims)
+    publish.publish_due(d, cfg, NOW)
+    assert fake_ig.created == [] and fake_ig.published == []
+
+
+def test_the_window_is_a_hard_limit(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    slot = datetime(2026, 11, 2, 17, tzinfo=UTC)  # 22:30 IST
+    c = add_clip(d, P, "scheduled", kind="script", scheduled_at=slot.isoformat())
+    fake_ig.limit = (50, 50)
+    publish.publish_due(d, cfg, slot)
+    fake_ig.limit = (0, 50)
+    publish.publish_due(d, cfg, slot + timedelta(minutes=45))  # 23:15 IST: quota free, window shut
+    row = clip(d, c)
+    assert fake_ig.published == [] and row["status"] == "scheduled"
+    assert datetime.fromisoformat(row["scheduled_at"]) > slot + timedelta(minutes=45)
+    assert d.execute("select count(*) from events where kind='rescheduled'").fetchone()[0] == 1
