@@ -220,6 +220,7 @@ def make_clips(db, cfg, video_row) -> None:
             layer = writing.write_layer(page, writing.Moment(**m), text)
             music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip['id']}.mp4"
+            clipper.MUSIC["volume"] = page.music_volume  # per page bed level
             clipper.render_one(workdir, {**m, "cards": [{**c.model_dump(), "hold": 4} for c in layer.cards]}, out,
                                theme=page.theme, intro=None, outro=None, music=music, sfx=page.sfx,
                                hook_style=page.hook_style, brand_tag=page.brand_tag)

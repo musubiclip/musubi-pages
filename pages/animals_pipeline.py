@@ -243,6 +243,7 @@ def cut(db, cfg, row) -> None:
         try:
             music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip_id}.mp4"
+            clipper.MUSIC["volume"] = page.music_volume  # per page bed level
             clipper.render_one(workdir, {**moment, "cards": [{**c, "hold": 4} for c in moment["cards"]]}, out,
                                theme=page.theme, intro=None, outro=None, music=music,
                                hook_style=page.hook_style, brand_tag=page.brand_tag)

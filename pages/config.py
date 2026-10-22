@@ -18,6 +18,7 @@ class Page:
     daily_target: int
     theme: dict
     music: list[str] = field(default_factory=list)
+    music_volume: float = 0.10  # bed level when nobody speaks; ducks to 60% under speech
     clips_per_video: int = 3
     topics: str = ""
     sfx: bool = True  # sound effects on the hook, cards and cuts (clip pages)
