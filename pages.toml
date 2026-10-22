@@ -27,7 +27,7 @@ hook_style = "headline"
 brand_tag = "TECH BAWAAL"
 avatar = "assets/pages/tech_bawaal/avatar.jpg"
 formats = {clip = 2, montage = 1, rapidfire = 1}
-montage_music = ["music/trap-beat-hscoa.mp3", "music/trap-deep-bass-nesmartu.mp3", "music/trap-mafia-game-notmeat2020.mp3"]
+montage_music = ["music/trap-mafia-game-notmeat2020.mp3"]  # the 152 bpm bed both montage previews were approved on
 queries = ["how it works machine", "engineering explained", "factory process", "robot arm", "physics experiment", "satisfying machine", "how it's made", "gadget teardown"]
 
 # Set from what the API actually does (verify-ig).

@@ -28,11 +28,11 @@ TEXT_BEAT_WORDS = 5
 LEAD, TAIL = 0.12, 0.15  # air around a spoken line
 # mix levels (HyperFrames volumes; the beds are mastered to -14 LUFS, the whole mix is normalised after)
 VISUAL_MUSIC, VISUAL_FOOTAGE = 1.0, 0.12  # the music carries a visual montage; machines and ambience stay faint
-SPEECH_MUSIC, SPEECH_DUCK = 0.45, 0.35  # bass clearly audible under the voices, a little lower while words land
+SPEECH_MUSIC, SPEECH_DUCK = 0.60, 0.45  # level B: the bass stays clearly audible under the voices
 SPEECH_FOOTAGE = 1.0
 TARGET_LUFS = -14
 TRANSITIONS = {"visual": ("whip", "zoom", "flash", "glitch", "shake", "ramp"),
-               "speech": ("whip", "zoom", "flash", "glitch", "shake")}
+               "speech": ("slam", "whipflash", "glitchzoom")}  # every rapid fire cut is a full hit with a sound
 SMALL_FACE, WIDE_SHOT_KEEP = 0.06, 0.55  # a face under 6% of the width is a wide shot: crop to 55% of the height
 OUT_W, OUT_H = clipper.OUT_W, clipper.OUT_H
 SFX_GAP = 2.0  # seconds between transition sound effects
@@ -177,7 +177,7 @@ def sfx_cues(cuts, kinds):
     """Impact on the drop, whoosh on whips; never closer than SFX_GAP, so not every cut gets a sound."""
     cues, last = [], -SFX_GAP
     for t, kind in zip(cuts, kinds):
-        name = {"drop": "impact", "whip": "whoosh"}.get(kind)
+        name = {"drop": "impact", "slam": "impact", "glitchzoom": "impact", "whip": "whoosh", "whipflash": "whoosh"}.get(kind)
         if name and t - last >= SFX_GAP:
             at = max(0.0, t - (0.12 if name == "whoosh" else 0.0))
             cues.append((name, round(at, 3)))
@@ -332,7 +332,10 @@ def _render_montage(segments, out, music, theme, brand_tag, headline, accent, te
             "brand_tag": brand_tag, "hook_end": hook_end, "beat": round(p["period"], 4), "bpm": grid["bpm"],
             "cuts": [{"t": t, "kind": k} for t, k in zip(inner, kinds)],
             "text_beats": text_beat_times(text_beats, p["downbeats"], hook_end, duration),
-            "words": [{"t": w["word"], "s": w["start"], "e": w["end"]} for w in timeline], "groups": groups}
+            "words": [{"t": w["word"], "s": w["start"], "e": w["end"]} for w in timeline], "groups": groups,
+            # speech: a small punch on each downbeat inside a long line, so the picture keeps hitting with the bass
+            "pulses": [t for t in p["downbeats"] if hook_end < t < duration - 0.3 and all(abs(t - c) > 0.45 for c in inner)]
+            if mode == "speech" else []}
     footage = SPEECH_FOOTAGE if mode == "speech" else VISUAL_FOOTAGE
     tags = (f'<audio id="bg-audio" src="base.mp4" data-start="0" data-duration="{duration}" data-track-index="10" '
             f'data-volume="{footage}"></audio>')

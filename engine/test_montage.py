@@ -142,3 +142,10 @@ def test_a_wide_shot_crops_closer_around_the_speaker():
     wide = montage.fill_frame(1920, 1080, (1400, 500, 60))  # a stage shot: 55% of the height, around the face
     assert wide.startswith("crop=334:594:1233:") and "scale=1080:1920" in wide
     assert montage.fill_frame(1920, 1080).startswith("crop=608:1080:656:0,")  # no face: the centre
+
+
+def test_every_rapid_fire_cut_gets_a_hit_and_a_sound():
+    kinds = montage.pick_transitions(6, "speech", [10] * 6, 1)
+    cuts = [2.0 + 4.5 * i for i in range(len(kinds))]
+    assert set(kinds[1:]) <= set(montage.TRANSITIONS["speech"])
+    assert len(montage.sfx_cues(cuts, kinds)) == len(kinds)
