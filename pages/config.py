@@ -21,6 +21,7 @@ class Page:
     clips_per_video: int = 3
     topics: str = ""
     active: bool = True
+    queries: list[str] = field(default_factory=list)  # YouTube searches for the animals pipeline
 
 
 @dataclass

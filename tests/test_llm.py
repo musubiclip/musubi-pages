@@ -59,3 +59,33 @@ def test_bedrock_returns_parsed(monkeypatch):
     monkeypatch.setenv("PAGES_LLM", "bedrock")
     install_fake_mantle(monkeypatch, parsed=X(x=5))
     assert llm.ask("x", X).x == 5
+
+
+def test_cli_with_images_reads_them_instead_of_running_toolless(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAGES_LLM", "claude-cli")
+    (tmp_path / "sheet-01.png").write_bytes(b"png")
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: (seen.append(cmd), subprocess.CompletedProcess(
+        cmd, 0, json.dumps({"is_error": False, "structured_output": {"x": 1}}), ""))[1])
+    assert llm.ask("pick", X, images=[tmp_path / "sheet-01.png"]).x == 1
+    cmd = seen[0]
+    assert str((tmp_path / "sheet-01.png").resolve()) in cmd[cmd.index("-p") + 1] and "--tools" not in cmd
+    assert cmd[cmd.index("--allowedTools") + 1] == "Read" and cmd[cmd.index("--add-dir") + 1] == str(tmp_path.resolve())
+
+
+def test_bedrock_sends_images_before_the_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAGES_LLM", "bedrock")
+    (tmp_path / "a.png").write_bytes(b"png")
+    sent = {}
+
+    class Messages:
+        def parse(self, **kw):
+            sent.update(kw)
+            return types.SimpleNamespace(stop_reason="end_turn", parsed_output=X(x=3), content=[])
+
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(
+        AnthropicBedrockMantle=lambda aws_region: types.SimpleNamespace(messages=Messages())))
+    assert llm.ask("pick", X, images=[tmp_path / "a.png"]).x == 3
+    image, text = sent["messages"][0]["content"]
+    assert image["type"] == "image" and image["source"]["data"] == "cG5n" and image["source"]["media_type"] == "image/png"
+    assert text == {"type": "text", "text": "pick"}

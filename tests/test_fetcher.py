@@ -4,7 +4,7 @@ import subprocess
 from engine import clipper
 from pages import fetcher, store
 
-NOTHING = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "failed": 0}
+NOTHING = {"watch": 0, "prepare": 0, "sections": 0, "cc": 0, "animals": 0, "failed": 0}
 
 
 def jobs(**kw):

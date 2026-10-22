@@ -8,7 +8,7 @@ def test_load_reads_the_two_pilot_pages():
     cfg = config.load()
     assert set(cfg.pages) == {"podcastbawaal", "billikalesh"}
     assert cfg.pages["podcastbawaal"].pipeline == "clips"
-    assert cfg.pages["billikalesh"].pipeline == "script"
+    assert cfg.pages["billikalesh"].pipeline == "animals" and cfg.pages["billikalesh"].queries
     assert cfg.pages["billikalesh"].window == (9, 23) and cfg.pages["billikalesh"].daily_target == 1
 
 
