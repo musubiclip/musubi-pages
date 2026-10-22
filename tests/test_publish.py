@@ -115,8 +115,7 @@ def test_collaborator_added_for_a_collab_source(d, cfg_with_podcast, fake_ig, mo
     d.execute("update pages set ig_user_id='1', token='tok', token_expires_at=? where handle='podcastbawaal'",
               ((NOW + timedelta(days=50)).isoformat(),))
     d.execute("insert into source_videos (source_id, page, video_id) values ('pod', 'podcastbawaal', 'v1')")
-    vid = d.execute("select id from source_videos").fetchone()[0]
-    add_clip(d, "podcastbawaal", "scheduled", video_id=vid, scheduled_at=NOW.isoformat())
+    add_clip(d, "podcastbawaal", "scheduled", video_id="v1", scheduled_at=NOW.isoformat())  # the YouTube id
     publish.publish_due(d, cfg, NOW)
     assert fake_ig.created[0]["collaborators"] == ["podofficial"]
 
@@ -182,3 +181,66 @@ def test_two_clips_due_at_once_publish_one_per_tick(d, cfg, fake_ig, monkeypatch
     due(d, 2)
     publish.publish_due(d, cfg, NOW)
     assert len(fake_ig.published) == 1
+
+
+def test_timeout_after_instagram_posted_never_posts_twice(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+    real = fake_ig.publish
+
+    def posted_then_timeout(uid, token, cid):
+        real(uid, token, cid)
+        fake_ig.container = {"status_code": "PUBLISHED"}
+        raise TimeoutError("read timed out")
+    monkeypatch.setattr(ig, "publish", posted_then_timeout)
+    publish.publish_due(d, cfg, NOW)
+    monkeypatch.setattr(ig, "publish", real)
+    publish.publish_due(d, cfg, NOW + timedelta(minutes=20))
+    row = clip(d, c)
+    assert len(fake_ig.created) == 1 and fake_ig.published == ["c1"]
+    assert (row["status"], row["container_id"]) == ("published", "c1") and row["published_at"]
+    assert d.execute("select count(*) from events where kind='published_without_id'").fetchone()[0] == 1
+
+
+def test_a_clip_another_runner_is_publishing_is_left_alone(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+    d.execute("update clips set status='publishing', scheduled_at=? where id=?", (NOW.isoformat(), c))
+    d.commit()
+    publish.publish_due(d, cfg, NOW + timedelta(minutes=5))
+    assert fake_ig.created == [] and fake_ig.published == []
+
+
+def test_a_stuck_publishing_clip_is_resolved_through_its_container(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    [c] = due(d)
+    d.execute("update clips set status='publishing', container_id='c9', scheduled_at=? where id=?",
+              (NOW.isoformat(), c))
+    d.commit()
+    publish.publish_due(d, cfg, NOW + timedelta(minutes=20))
+    assert fake_ig.created == [] and fake_ig.published == ["c9"] and clip(d, c)["status"] == "published"
+
+
+def test_an_unexpected_error_on_one_clip_does_not_stop_the_next_page(d, cfg_with_podcast, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    d.execute("update pages set ig_user_id='1', token='tok', token_expires_at=? where handle='podcastbawaal'",
+              ((NOW + timedelta(days=50)).isoformat(),))
+    d.execute("insert into pages (handle, token, ig_user_id, token_expires_at) values ('gone', 'tok', '2', ?)",
+              ((NOW + timedelta(days=50)).isoformat(),))
+    d.commit()
+    add_clip(d, "gone", "scheduled", scheduled_at=(NOW - timedelta(hours=3)).isoformat())  # late: _reslot KeyErrors
+    other = add_clip(d, "podcastbawaal", "scheduled", kind="script",
+                     scheduled_at=(NOW - timedelta(minutes=1)).isoformat())
+    publish.publish_due(d, cfg_with_podcast, NOW)
+    assert clip(d, other)["status"] == "published"
+    assert d.execute("select count(*) from events where kind='publish_error'").fetchone()[0] == 1
+
+
+def test_a_clip_whose_source_was_withdrawn_is_not_published(d, cfg, fake_ig, monkeypatch):
+    setup(d, monkeypatch)
+    d.execute("insert into source_videos (source_id, page, video_id) values ('gone', 'billikalesh', 'v7')")
+    c = add_clip(d, P, "scheduled", video_id="v7", scheduled_at=(NOW - timedelta(minutes=1)).isoformat())
+    publish.publish_due(d, cfg, NOW)
+    assert fake_ig.created == []
+    assert (clip(d, c)["status"], clip(d, c)["reason"]) == ("failed", "source no longer permitted")
+    assert d.execute("select count(*) from events where kind='source_withdrawn'").fetchone()[0] == 1
