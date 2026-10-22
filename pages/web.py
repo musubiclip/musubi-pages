@@ -248,15 +248,40 @@ async def reschedule(cid: int, body: Reschedule, db=Depends(get_db), cfg=Depends
     at = body.at.astimezone(UTC)
     if at < datetime.now(UTC) + timedelta(minutes=2):
         raise HTTPException(400, "pick a time in the future")
-    row = db.execute("select page from clips where id = ? and status = 'scheduled'", (cid,)).fetchone()
+    _set_time(db, cfg, cid, at)
+    return OK
+
+
+@app.post("/api/clips/{cid}/post-now")
+async def post_now(cid: int, db=Depends(get_db), cfg=Depends(get_cfg)):
+    """Make an approved or scheduled reel due now; the next tick posts it."""
+    now = datetime.now(UTC)
+    row = _movable(db, cid)
+    last = db.execute("select max(published_at) from clips where page = ?", (row["page"],)).fetchone()[0]
+    if last and now - datetime.fromisoformat(last) < timedelta(hours=3):  # publish_due would only reslot it
+        raise HTTPException(400, "the page posted under 3 hours ago; pick a later time")
+    _set_time(db, cfg, cid, now)
+    return OK
+
+
+def _movable(db, cid):
+    row = db.execute("select page from clips where id = ? and status in ('approved', 'scheduled')", (cid,)).fetchone()
     if not row:
-        raise HTTPException(409, "reel is not scheduled (it may be posting right now)")
+        raise HTTPException(409, "reel is not approved or scheduled (it may be posting right now)")
+    return row
+
+
+def _set_time(db, cfg, cid, at):
+    """Schedule an approved reel, or move a scheduled one, to `at` (UTC)."""
+    row = _movable(db, cid)
     lo, hi = cfg.pages[row["page"]].window
     if not lo <= at.astimezone(IST).hour < hi:  # the publisher never posts outside the window
         raise HTTPException(400, f"outside the posting window, {lo}:00 to {hi}:00 IST")
-    db.execute("update clips set scheduled_at = ? where id = ? and status = 'scheduled'", (at.isoformat(), cid))
+    cur = db.execute("update clips set status = 'scheduled', scheduled_at = ? "
+                     "where id = ? and status in ('approved', 'scheduled')", (at.isoformat(), cid))
     db.commit()
-    return OK
+    if not cur.rowcount:
+        raise HTTPException(409, "reel is not approved or scheduled (it may be posting right now)")
 
 
 @app.post("/api/pages/{handle}/unpause")

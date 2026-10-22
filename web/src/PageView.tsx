@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react"
-import { CalendarClock, CalendarDays, ExternalLink, Film, KeyRound, Link2, Pause, Play, Trash2 } from "lucide-react"
+import { CalendarClock, CalendarDays, ExternalLink, Film, KeyRound, Link2, Pause, Play, Send, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { day, hour, post, when, type Page, type Reel } from "@/api"
@@ -185,11 +185,20 @@ const MINUTES = [0, 15, 30, 45]
 function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; refresh: Refresh }) {
   const at = r.status === "published" ? r.published_at : r.status === "scheduled" ? r.scheduled_at : null
   const [open, setOpen] = useState(false)
-  const [pick, setPick] = useState(() => istParts(r.scheduled_at))
+  const movable = r.status === "scheduled" || r.status === "approved"
+  const start = () => {  // approved reels have no time yet: start at the next hour, inside the window
+    if (r.scheduled_at) return istParts(r.scheduled_at)
+    const p = istParts(null)
+    const h = p.hour + 1
+    if (h < window[0]) return { ...p, hour: window[0], minute: 0 }
+    if (h < window[1]) return { ...p, hour: h, minute: 0 }
+    return { day: new Date(p.day.getFullYear(), p.day.getMonth(), p.day.getDate() + 1), hour: window[0], minute: 0 }
+  }
+  const [pick, setPick] = useState(start)
   const [busy, setBusy] = useState(false)
   const hours = Array.from({ length: window[1] - window[0] }, (_, i) => window[0] + i)
   const chosen = istIso(pick.day, pick.hour, pick.minute)
-  const changed = r.scheduled_at !== null && new Date(chosen).getTime() !== new Date(r.scheduled_at).getTime()
+  const changed = r.scheduled_at === null || new Date(chosen).getTime() !== new Date(r.scheduled_at).getTime()
   const today = istParts(null).day
   const act = async (path: string, body: object | undefined, done: string, close: boolean) => {
     setBusy(true)
@@ -199,7 +208,7 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
   }
   return (
     <li>
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(istParts(r.scheduled_at)) }}>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(start()) }}>
         <DialogTrigger asChild>
           <button className="group flex w-full flex-col gap-2 text-left focus-visible:outline-none">
             <AspectRatio ratio={9 / 16} className="overflow-hidden rounded-[10px] border bg-muted shadow-sm transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
@@ -233,7 +242,7 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
             <video src={r.video_url} poster={r.cover_url ?? undefined} controls autoPlay playsInline
               className="aspect-[9/16] max-h-[60vh] w-full rounded-[10px] bg-foreground object-contain" />
           ) : <p className="text-sm text-muted-foreground">No video file.</p>}
-          {r.status === "scheduled" && (
+          {movable && (
             <div className="flex flex-col gap-2">
               <Label>Post time, IST</Label>
               <div className="flex flex-wrap gap-2">
@@ -268,11 +277,30 @@ function ReelTile({ r, window, refresh }: { r: Reel; window: [number, number]; r
             </div>
           )}
           <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
-            {r.status === "scheduled" && (
+            {movable && (
               <Button disabled={busy || !changed}
-                onClick={() => act("reschedule", { at: chosen }, `Reel #${r.id} moved to ${when(chosen)}`, false)}>
-                <CalendarClock aria-hidden="true" /> Save time
+                onClick={() => act("reschedule", { at: chosen }, `Reel #${r.id} ${r.status === "approved" ? "scheduled for" : "moved to"} ${when(chosen)}`, false)}>
+                <CalendarClock aria-hidden="true" /> {r.status === "approved" ? "Schedule" : "Save time"}
               </Button>
+            )}
+            {movable && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" disabled={busy}><Send aria-hidden="true" /> Post now</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Post reel #{r.id} now?</AlertDialogTitle>
+                    <AlertDialogDescription>It goes out on the publisher's next run, within a few minutes.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel variant="ghost">Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => act("post-now", undefined, `Reel #${r.id} posts on the next run`, true)}>
+                      Post now
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
             {r.cover_url && (
               <Button variant="outline" asChild><a href={r.cover_url} target="_blank" rel="noreferrer">Open cover</a></Button>
