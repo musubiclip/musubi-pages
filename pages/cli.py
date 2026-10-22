@@ -26,6 +26,7 @@ def main(argv=None):
     sub.add_parser("init")
     sub.add_parser("connect").add_argument("handle")
     sub.add_parser("verify-ig").add_argument("handle")
+    sub.add_parser("covers").add_argument("--ids", type=int, nargs="*")
     for name in ("check-aws", "web", "tick", "work", "fetch"):
         sub.add_parser(name)
     args = ap.parse_args(argv)
@@ -55,6 +56,9 @@ def main(argv=None):
     elif args.cmd == "verify-ig":
         from pages.verify import run
         print(json.dumps(run(db, args.handle), indent=2, default=str))
+    elif args.cmd == "covers":
+        from pages.covers import rebuild
+        print(json.dumps(rebuild(db, cfg, args.ids)))
     elif args.cmd == "tick":
         from pages.tick import tick
         tick(db, cfg, datetime.now(UTC))

@@ -12,6 +12,7 @@ dependencies = [
     "pydantic",
     "pyjwt[crypto]",
     "opencv-python-headless",
+    "pillow>=13.0.0",
 ]
 
 [dependency-groups]

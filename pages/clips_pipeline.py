@@ -104,13 +104,17 @@ def advance(db, cfg) -> None:
             _set(db, row, "fetched")
 
 
-def put_cover(clip_id: int, out: Path) -> str | None:
-    """Store the cover frame render_one wrote beside the video; its key, or None when there is none."""
-    cover = out.with_suffix(".jpg")
-    if not cover.exists():
+def put_cover(clip_id: int, out: Path, page) -> str | None:
+    """Store the cover frame render_one wrote beside the video and the branded cover made from it;
+    the branded cover's key, or None when there is no frame."""
+    from pages.covers import make_cover
+    frame = out.with_suffix(".jpg")
+    if not frame.exists():
         return None
-    store.put(f"clips/{clip_id}.jpg", cover)
-    return f"clips/{clip_id}.jpg"
+    store.put(f"clips/{clip_id}.jpg", frame)
+    key = f"clips/{clip_id}-cover.jpg"
+    store.put(key, make_cover(frame, page, out.with_name(f"{out.stem}-cover.jpg")))
+    return key
 
 
 def _text(key: str) -> str:
@@ -221,7 +225,7 @@ def make_clips(db, cfg, video_row) -> None:
                                hook_style=page.hook_style, brand_tag=page.brand_tag)
             key = f"clips/{clip['id']}.mp4"
             store.put(key, out)
-            cover = put_cover(clip["id"], out)
+            cover = put_cover(clip["id"], out, page)
             caption = writing.write_caption(page, f"{m['title']}. {m['reason']}", [credit], previous)
             previous.append(caption)
             db.execute("update clips set layer = ?, credits = ?, file_key = ?, cover_key = ?, caption = ?, status = 'draft' "

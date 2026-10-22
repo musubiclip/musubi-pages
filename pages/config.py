@@ -25,6 +25,7 @@ class Page:
     queries: list[str] = field(default_factory=list)  # Creative Commons YouTube searches: any page with these gets visual reels
     hook_style: str = "spotlight"  # "headline": a news headline with the brand tag opens every reel and is its cover
     brand_tag: str = ""  # small caps over the headline, such as "TECH BAWAAL"
+    avatar: str = ""  # profile picture (repo-relative path): a round badge on every reel cover
 
 
 @dataclass

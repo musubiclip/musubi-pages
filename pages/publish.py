@@ -139,7 +139,8 @@ def _publish_one(db, cfg, clip, page, now: datetime) -> None:
         first is None or now < datetime.fromisoformat(first) + timedelta(days=7))
     if not container_id:
         container_id = ig.create_reel(uid, token, url, clip["caption"], thumb_offset_ms=1300, trial=trial,
-                                      collaborators=_collaborators(db, cfg, clip), ai_label=cfg.api.get("ai_label", False))
+                                      collaborators=_collaborators(db, cfg, clip), ai_label=cfg.api.get("ai_label", False),
+                                      cover_url=store.url(clip["cover_key"], 6 * 3600) if clip["cover_key"] else None)
         db.execute("update clips set container_id = ?, trial = ? where id = ?", (container_id, int(trial), clip["id"]))
         db.commit()
     c = ig.wait_container(container_id, token, copyright=bool(cfg.api.get("copyright_check")))

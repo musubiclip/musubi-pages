@@ -25,6 +25,7 @@ clips_per_video = 3
 topics = "tech and AI: launches, hot takes, founders, AI tools and debates, gadgets, and how it works engineering and science explainers"
 hook_style = "headline"
 brand_tag = "TECH BAWAAL"
+avatar = "assets/pages/tech_bawaal/avatar.jpg"
 queries = ["how it works machine", "engineering explained", "factory process", "robot arm", "physics experiment", "satisfying machine", "how it's made", "gadget teardown"]
 
 # Set from what the API actually does (verify-ig).
