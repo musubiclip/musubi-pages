@@ -1,8 +1,9 @@
 # Pages and sources. No secrets here: tokens live only in the DB (`pages connect`).
 
+# voice: a macOS `say` name locally, a Polly name when PAGES_TTS=polly.
 [pages.podcastbawaal]
 pipeline = "clips"
-voice = "Kajal"
+voice = "Aman"
 window = [9, 23]
 daily_target = 1
 theme = {hot = "#7c5cff", sun = "#ffd23f", font = "Bricolage Grotesque"}
@@ -11,7 +12,7 @@ clips_per_video = 3
 
 [pages.billikalesh]
 pipeline = "script"
-voice = "Kajal"
+voice = "Tara"
 window = [9, 23]
 daily_target = 1
 theme = {hot = "#ff8a3d", sun = "#ffe066", font = "Poppins"}

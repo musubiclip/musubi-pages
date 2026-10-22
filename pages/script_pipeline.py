@@ -13,6 +13,7 @@ from pathlib import Path
 from engine import clipper
 from pages import config, store, voice, writing
 from pages.db import QUEUE_LOW, queue_size
+from pages.db import event as db_event
 
 TAIL = 1.0
 CC_WAIT_DAYS = 3
@@ -115,13 +116,6 @@ def _set(db, clip_id: int, **cols) -> None:
 
 
 def make_reel(db, cfg, page) -> int:
-    if not (os.environ.get("PEXELS_KEY") or os.environ.get("PIXABAY_KEY")):
-        # without them every beat becomes a CC job; fail before spending a Claude call
-        clip_id = db.execute("insert into clips (page, kind, status, reason, created_at, attempts) "
-                             "values (?, 'script', 'failed', 'no stock API keys', ?, 0)",
-                             (page.handle, datetime.now(UTC).isoformat())).lastrowid
-        db.commit()
-        return clip_id
     clip_id = db.execute("insert into clips (page, kind, status, created_at, attempts) values (?, 'script', 'planned', ?, 0)",
                          (page.handle, datetime.now(UTC).isoformat())).lastrowid
     db.commit()
@@ -130,6 +124,8 @@ def make_reel(db, cfg, page) -> int:
                  db.execute("select script from clips where page = ? and script is not null", (page.handle,))]
         script = writing.write_script(page, ideas)
         _set(db, clip_id, script=json.dumps(script.model_dump()))
+        if not (os.environ.get("PEXELS_KEY") or os.environ.get("PIXABAY_KEY")):
+            db_event(db, page.handle, "no_stock_keys", "using Creative Commons footage")
         tmp = config.HOME / "tmp" / f"script-{clip_id}"
         tmp.mkdir(parents=True, exist_ok=True)
         words, seconds = voice.speak(" ".join(b.line for b in script.beats), page.voice, tmp / "voice.mp3")
