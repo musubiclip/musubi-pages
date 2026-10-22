@@ -31,6 +31,7 @@ def page(d):
 def test_first_week_goes_out_as_a_trial_reel_with_the_ai_label(d, cfg, fake_ig, monkeypatch):
     setup(d, monkeypatch)
     cfg.api["trial_reels"] = True
+    cfg.api["ai_label"] = True
     [c] = due(d)
     publish.publish_due(d, cfg, NOW)
     assert fake_ig.created[0]["trial"] is True and fake_ig.created[0]["ai_label"] is True
@@ -396,3 +397,15 @@ def test_the_window_is_a_hard_limit(d, cfg, fake_ig, monkeypatch):
     assert fake_ig.published == [] and row["status"] == "scheduled"
     assert datetime.fromisoformat(row["scheduled_at"]) > slot + timedelta(minutes=45)
     assert d.execute("select count(*) from events where kind='rescheduled'").fetchone()[0] == 1
+
+
+def test_ai_label_follows_the_api_setting(d, cfg, fake_ig, monkeypatch):
+    from helpers import add_clip
+    from datetime import datetime, UTC
+    monkeypatch.setattr(store, "url", lambda k, s=3600: "https://example.test/" + k)
+    now = datetime(2026, 11, 2, 7, 0, tzinfo=UTC)
+    d.execute("update pages set ig_user_id='1', token='t', token_expires_at='2026-12-31T00:00:00+00:00' where handle='tech_bawaal'")
+    add_clip(d, "tech_bawaal", "scheduled", scheduled_at=now.isoformat())
+    cfg.api["ai_label"] = False
+    publish.publish_due(d, cfg, now)
+    assert fake_ig.created and fake_ig.created[0]["ai_label"] is False
