@@ -9,7 +9,7 @@ def test_load_reads_the_two_pilot_pages():
     assert set(cfg.pages) == {"podcastbawaal", "tech_bawaal"}
     assert cfg.pages["podcastbawaal"].pipeline == "clips"
     assert cfg.pages["tech_bawaal"].pipeline == "clips" and cfg.pages["tech_bawaal"].clips_per_video == 3
-    assert cfg.pages["tech_bawaal"].window == (9, 23) and cfg.pages["tech_bawaal"].daily_target == 1
+    assert cfg.pages["tech_bawaal"].window == (9, 23) and cfg.pages["tech_bawaal"].daily_target == 2
 
 
 def test_youtube_source_needs_a_permission_record(tmp_path):

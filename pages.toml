@@ -17,7 +17,7 @@ active = true
 pipeline = "clips"
 voice = "Tara"
 window = [9, 23]
-daily_target = 1
+daily_target = 2
 theme = {hot = "#256dfd", sun = "#5cff3a", font = "Poppins"}
 music = ["music/circuit-synthwave-alt.mp3", "music/lofi-beat-loafy.mp3", "music/synthwave-electropop.mp3"]
 sfx = true
