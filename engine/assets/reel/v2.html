@@ -47,6 +47,17 @@
       #hk-glyphs { position: relative; display: flex; white-space: pre; }
       .hk-g { display: inline-block; font: 800 124px/1 var(--display); color: var(--ink); text-transform: uppercase; }
 
+      #headline { position: absolute; inset: 0; }
+      #hl-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 1180px; background: linear-gradient(rgba(10, 10, 12, 0), rgba(10, 10, 12, 0.78) 380px, rgba(10, 10, 12, 0.95)); }
+      #hl-box { position: absolute; left: 64px; right: 64px; bottom: 330px; }
+      #hl-tag { display: flex; align-items: center; gap: 24px; margin-bottom: 30px; }
+      #hl-tag-text { font: 800 36px/1 var(--text); letter-spacing: 0.34em; color: var(--paper); text-transform: uppercase; white-space: nowrap; }
+      #hl-rule { flex: 1; height: 3px; background: var(--hot); transform-origin: 0 50%; }
+      #hl-text { font: 400 160px/1 "Anton", sans-serif; color: var(--paper); text-transform: uppercase; text-shadow: 0 6px 28px rgba(0, 0, 0, 0.45); overflow-wrap: normal; }
+      .hl-w { display: inline-block; }
+      .hl-a0 { color: var(--hot); }
+      .hl-a1 { color: var(--sun); }
+
       #caps { position: absolute; inset: 0; }
       .cg { position: absolute; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 6px 4px; padding: 0 48px; opacity: 0; visibility: hidden; }
       .cw { position: relative; display: inline-block; padding: 2px 16px 10px; }
@@ -159,6 +170,7 @@
         <div id="hk-line"><span id="hk-lead"></span><span id="hk-tail"><span id="hk-bar"></span><span id="hk-glyphs"></span></span></div>
       </div>
 
+      <!--__HEADLINE__-->
       <!--__WATERMARK__-->
       <div id="flash"></div>
       <div id="fadeout"></div>
@@ -190,7 +202,9 @@
       const D = DATA.duration;
       const FRAME = 1 / 30;
       const FONT = "Bricolage Grotesque";
-      const HOOK_END = Math.min(Math.max(1.85, DATA.intro ? DATA.intro.seconds : 0), D - 0.4);
+      const HEADLINE = document.getElementById("headline");
+      // a headline holds 2.5 s, or through the cold open up to 3.5 s (mirrors clipper.hook_end)
+      const HOOK_END = Math.min(Math.max(HEADLINE ? Math.min(Math.max(2.5, DATA.cut || 0), 3.5) : 1.85, DATA.intro ? DATA.intro.seconds : 0), D - 0.4);
       const CAP_END = DATA.outro ? DATA.outro.at : D;
       const EMPH = new Set((DATA.emphasis || []).map(clean));
       const measure = document.createElement("canvas").getContext("2d");
@@ -334,6 +348,32 @@
         tl.to("#dim", { opacity: 0, duration: 0.2, ease: "power2.in" }, out + 0.04);
         tl.to("#cam", { scale: 1.0, duration: 0.3, ease: "power2.inOut" }, out + 0.04);
         tl.set("#hook", { visibility: "hidden" }, HOOK_END);
+      }
+
+      function buildHeadline(tl) {
+        document.getElementById("hook").style.display = "none";
+        const text = document.getElementById("hl-text");
+        // the biggest size that keeps every word on the line and the headline within 4 lines
+        for (let size = 200; size >= 72; size -= 4) {
+          text.style.fontSize = size + "px";
+          if (text.offsetHeight <= size * 4.2 && text.scrollWidth <= text.clientWidth) break;
+        }
+        // the shade starts 380 px above the tag and is near solid behind the text
+        document.getElementById("hl-shade").style.height = 1920 - document.getElementById("hl-box").offsetTop + 380 + "px";
+
+        tl.fromTo("#hl-shade", { opacity: 0 }, { opacity: 1, duration: 0.18, ease: "power2.out" }, 0);
+        tl.fromTo("#cam", { scale: 1.14 }, { scale: 1.04, duration: 0.5, ease: "expo.out" }, 0);
+        if (document.getElementById("hl-tag")) {
+          tl.fromTo("#hl-tag-text", { x: -40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.2, ease: "power3.out" }, 0);
+          tl.fromTo("#hl-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.26, ease: "power4.out" }, 0.03);
+        }
+        tl.fromTo(".hl-w", { yPercent: 55, opacity: 0, scale: 1.08 }, { yPercent: 0, opacity: 1, scale: 1, duration: 0.18, ease: "power3.out", stagger: { amount: 0.1 } }, 0.02);
+
+        const out = HOOK_END - 0.22;
+        tl.to("#hl-box", { y: 70, opacity: 0, duration: 0.2, ease: "power3.in" }, out);
+        tl.to("#hl-shade", { opacity: 0, duration: 0.22, ease: "power2.in" }, out);
+        tl.to("#cam", { scale: 1.0, duration: 0.3, ease: "power2.inOut" }, out);
+        tl.set("#headline", { visibility: "hidden" }, HOOK_END);
       }
 
       function buildCaptions(tl) {
@@ -552,7 +592,8 @@
       function build() {
         const tl = gsap.timeline({ paused: true });
         tl.fromTo("#progress-fill", { scaleX: 0 }, { scaleX: 1, duration: D, ease: "none" }, 0);
-        buildHook(tl);
+        if (HEADLINE) buildHeadline(tl);
+        else buildHook(tl);
         buildCaptions(tl);
         const busy = [buildStat(tl), buildDeal(tl)].filter(Boolean);
         buildTag(tl, busy.concat(buildCards(tl)));
@@ -568,7 +609,7 @@
       }
 
       window.__timelines = window.__timelines || {};
-      Promise.all([document.fonts.load('800 80px "' + FONT + '"'), document.fonts.load('800 30px "Inter"'), prepareEnd()]).then(build, build);
+      Promise.all([document.fonts.load('800 80px "' + FONT + '"'), document.fonts.load('800 30px "Inter"'), document.fonts.load('400 80px "Anton"'), prepareEnd()]).then(build, build);
     </script>
   </body>
 </html>

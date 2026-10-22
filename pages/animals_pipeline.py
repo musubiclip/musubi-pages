@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from pages import config, llm, store, writing  # config first: it sets MUSUBI_CLIPS_DIR for the engine
-from pages.clips_pipeline import _pull
+from pages.clips_pipeline import _pull, put_cover
 from pages.db import QUEUE_LOW, event, queue_size
 from pages.script_pipeline import _cc_search, _video_seconds
 from engine import clipper
@@ -115,6 +115,7 @@ class Moment(BaseModel):
     end: float
     title: str
     hook_text: str
+    hook_accent: list[str] = []
     cards: list[writing.Card]
     flags: list[str]
     hook: int = Field(ge=1, le=5)
@@ -146,10 +147,7 @@ Pick up to {want} moments for short vertical reels with no voiceover and no capt
 
 For each moment write:
 - title: a short working title.
-- hook_text: at most 8 words on screen for the first seconds, in English. Open a curiosity gap the clip pays off,
-  never a label. For explainers prefer "This is what happens when...", "Why..." or "How..." patterns.
-  No emojis, hashtags or dashes.
-- cards: 1 or 2 cards explaining the mechanism, science, engineering or context behind what is on screen that the
+{hook_rules}- cards: 1 or 2 cards explaining the mechanism, science, engineering or context behind what is on screen that the
   clip itself does not show. `at` is in source seconds inside the moment, title short, body one short sentence.
   Only state facts that are true in general; never invent specifics about this exact footage (names, ages, places,
   numbers). No dashes.
@@ -157,6 +155,20 @@ For each moment write:
 - Scores from 1 to 5: hook (first 3 seconds stop the scroll), standalone (needs no context), payoff (a satisfying
   end), emotion (funny, surprising, satisfying or moving). Be strict: most land at 2 to 4, and 5 is rare.
 """
+
+
+HOOK_RULES = {
+    "spotlight": """- hook_text: at most 8 words on screen for the first seconds, in English. Open a curiosity gap the clip pays off,
+  never a label. For explainers prefer "This is what happens when...", "Why..." or "How..." patterns.
+  No emojis, hashtags or dashes.
+""",
+    "headline": """- hook_text: a factual news headline of 6 to 14 words in English, shown big on the opening frames and the cover,
+  like a tech news page: specific, often with a number or a twist ("THIS GEAR DESTROYED A STEEL SHREDDER IN 3 SECONDS").
+  Say only what the footage actually shows: no invented names, numbers or places, no exaggeration. No emojis,
+  hashtags or dashes.
+- hook_accent: 1 to 3 words copied from hook_text to colour, the ones the headline turns on (a number, a name, the twist).
+""",
+}
 
 
 def contact_sheets(video: Path, duration: float, folder: Path) -> tuple[list[Path], float]:
@@ -179,18 +191,19 @@ def clips_for(duration: float, cap: int) -> int:
 
 
 def pick_moments(page, info: dict, duration: float, cuts: list[float], sheets: list[Path], every: float) -> list[Moment]:
-    prompt = PICK_RULES.format(handle=page.handle, topics=writing._topics(page), title=info.get("title", ""),
+    prompt = PICK_RULES.format(hook_rules=HOOK_RULES[page.hook_style], handle=page.handle, topics=writing._topics(page), title=info.get("title", ""),
                                duration=duration, every=every, cuts=", ".join(f"{c:.1f}" for c in cuts) or "none found",
                                want=clips_for(duration, page.clips_per_video), lo=CLIP_MIN, hi=CLIP_MAX, restricted=writing.RESTRICTED)
     return llm.ask(prompt, Moments, images=sheets).moments
 
 
-def keep(moments: list[Moment], duration: float, want: int) -> list[Moment]:
+def keep(moments: list[Moment], duration: float, want: int, hook_style: str = "spotlight") -> list[Moment]:
+    lo, hi = writing.HOOK_WORDS[hook_style]
     kept = []
     for m in sorted(moments, key=lambda m: -clipper.rank_score(m.model_dump())):
         if not (0 <= m.start and m.end <= duration and CLIP_MIN <= m.end - m.start <= CLIP_MAX):
             continue
-        if len(m.hook_text.split()) > 8 or not 1 <= len(m.cards) <= 2 or any(not m.start <= c.at <= m.end for c in m.cards):
+        if not lo <= len(m.hook_text.split()) <= hi or not 1 <= len(m.cards) <= 2 or any(not m.start <= c.at <= m.end for c in m.cards):
             continue
         if any(m.start < k.end and k.start < m.end for k in kept):
             continue
@@ -208,7 +221,7 @@ def cut(db, cfg, row) -> None:
     duration = clipper.duration_of(video)
     sheets, every = contact_sheets(video, duration, workdir / "sheets")
     kept = keep(pick_moments(page, info, duration, clipper.shot_cuts(video, 0, duration), sheets, every),
-                duration, clips_for(duration, page.clips_per_video))
+                duration, clips_for(duration, page.clips_per_video), page.hook_style)
     if not kept:
         _set(db, row, "skipped", "no usable moments")
         return
@@ -231,15 +244,17 @@ def cut(db, cfg, row) -> None:
             music = store.music_bed(page.music, config.HOME / "tmp" / "music")
             out = workdir / "out" / f"{clip_id}.mp4"
             clipper.render_one(workdir, {**moment, "cards": [{**c, "hold": 4} for c in moment["cards"]]}, out,
-                               theme=page.theme, intro=None, outro=None, music=music)
+                               theme=page.theme, intro=None, outro=None, music=music,
+                               hook_style=page.hook_style, brand_tag=page.brand_tag)
             key = f"clips/{clip_id}.mp4"
             store.put(key, out)
+            cover = put_cover(clip_id, out)
             caption = writing.write_caption(page, f"{m.title}. {m.hook_text}. " + " ".join(c.body for c in m.cards),
                                             [text], previous)
             previous.append(caption)
-            db.execute("update clips set layer = ?, credits = ?, file_key = ?, caption = ?, status = 'draft' where id = ?",
-                       (json.dumps({"cards": moment["cards"], "flags": m.flags}, ensure_ascii=False),
-                        json.dumps(credits, ensure_ascii=False), key, caption, clip_id))
+            db.execute("update clips set layer = ?, credits = ?, file_key = ?, cover_key = ?, caption = ?, status = 'draft' "
+                       "where id = ?", (json.dumps({"cards": moment["cards"], "flags": m.flags}, ensure_ascii=False),
+                                        json.dumps(credits, ensure_ascii=False), key, cover, caption, clip_id))
         except Exception as e:
             db.execute("update clips set status = 'failed', reason = ? where id = ?", (str(e), clip_id))
         db.commit()

@@ -28,3 +28,16 @@ def test_podcast_fixture_adds_a_source(cfg_with_podcast):
 def test_schema_has_the_design_tables(tmp_path):
     names = {r[0] for r in db.connect(tmp_path / "t.db").execute("select name from sqlite_master where type='table'")}
     assert {"pages", "source_videos", "clips", "insights", "account_daily", "events"} <= names
+
+
+def test_tech_bawaal_opens_on_a_headline_and_others_on_the_spotlight():
+    pages = config.load().pages
+    assert (pages["tech_bawaal"].hook_style, pages["tech_bawaal"].brand_tag) == ("headline", "TECH BAWAAL")
+    assert pages["podcastbawaal"].hook_style == "spotlight" and pages["podcastbawaal"].brand_tag == ""
+
+
+def test_an_unknown_hook_style_is_refused(tmp_path):
+    p = tmp_path / "pages.toml"
+    p.write_text((config.ROOT / "pages.toml").read_text().replace('hook_style = "headline"', 'hook_style = "banner"'))
+    with pytest.raises(ValueError, match="hook_style"):
+        config.load(p)

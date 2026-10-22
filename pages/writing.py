@@ -34,6 +34,7 @@ class Moment(BaseModel):
     hook_text: str
     hook_candidates: list[HookCandidate] = []
     hook_parts: HookParts | None
+    hook_accent: list[str] = []
     reason: str
     emphasis: list[str]
     focus_x: float | None
@@ -71,10 +72,7 @@ What makes a moment worth posting:
 - Timestamps come from the transcript lines; a line's start and end are safe choices.
 
 For each moment write:
-- hook_candidates: 3 different hooks, each at most 8 words, each with a score from 1 to 5 for how hard it stops the scroll in the first 2 seconds. Write each as a curiosity gap, a contrarian claim, a number, or an open question.
-- hook_text: the strongest of your hook_candidates, word for word. At most 8 words on screen for the first seconds, in English. It must open a curiosity gap or tension: a number, a contrarian claim, or a "why" or "how" question the clip answers. Never a summary or a label ("Founder on burnout" is a label; "He lost ₹40 Cr in one week" is a hook). No emojis, hashtags or dashes.
-- hook_parts: the same hook split for the animation: kicker (a short line above), big (one number or short word that slams in, such as 90% or ₹5 Cr), punch (one to three words). Any part may be "". Use null to let the hook_text be split automatically.
-- title: a short working title. reason: one sentence on why it holds a viewer.
+{hook_rules}- title: a short working title. reason: one sentence on why it holds a viewer.
 - emphasis: 3 to 8 words from the moment's own speech to punch (names, places, numbers, the words the point turns on), in English as the English captions will show them.
 - focus_x: where the speaker sits across the frame, 0 left to 1 right, for a two shot; null when one person fills the frame.
 - speaker_name and speaker_role: who is talking, from the video title, the intro or someone addressing them by name. Null if unsure or if several people talk.
@@ -84,8 +82,25 @@ For each moment write:
 """
 
 
-def pick_moments(transcript: str, title: str, want: int, topics: str = "") -> list[Moment]:
-    prompt = (f"{PICK_RULES}\nPick {want * 2} candidates; the best {want} will be kept.\n\n"
+HOOK_WORDS = {"spotlight": (1, 8), "headline": (6, 14)}  # hook_text length in words, per page hook_style
+
+HOOK_RULES = {
+    "spotlight": """\
+- hook_candidates: 3 different hooks, each at most 8 words, each with a score from 1 to 5 for how hard it stops the scroll in the first 2 seconds. Write each as a curiosity gap, a contrarian claim, a number, or an open question.
+- hook_text: the strongest of your hook_candidates, word for word. At most 8 words on screen for the first seconds, in English. It must open a curiosity gap or tension: a number, a contrarian claim, or a "why" or "how" question the clip answers. Never a summary or a label ("Founder on burnout" is a label; "He lost ₹40 Cr in one week" is a hook). No emojis, hashtags or dashes.
+- hook_parts: the same hook split for the animation: kicker (a short line above), big (one number or short word that slams in, such as 90% or ₹5 Cr), punch (one to three words). Any part may be "". Use null to let the hook_text be split automatically.
+""",
+    "headline": """\
+- hook_text: a factual news headline of 6 to 14 words in English, shown big on the opening frames and as the cover, the way a tech news page writes it: who said or did what, specific, often with a number or a twist ("Nandan Nilekani says AI will change every job in India"). Draw it only from what is actually said in the moment and the video title (name someone only when they make it clear who): no invented facts, names or numbers, no exaggeration, and keep the speaker's own strength of claim (if they said "kicked out", never write "illegally"). No emojis, hashtags or dashes.
+- hook_accent: 1 to 3 words copied from hook_text to colour, the ones the headline turns on (a number, a name, the twist).
+- hook_candidates: an empty list. hook_parts: null.
+""",
+}
+
+
+def pick_moments(transcript: str, title: str, want: int, topics: str = "", hook_style: str = "spotlight") -> list[Moment]:
+    rules = PICK_RULES.replace("{hook_rules}", HOOK_RULES[hook_style])
+    prompt = (f"{rules}\nPick {want * 2} candidates; the best {want} will be kept.\n\n"
               + (f"Page topics: {topics}\n" if topics else "")
               + f"Video title: {title}\n\nTranscript:\n{transcript}")
     return llm.ask(prompt, Moments).moments

@@ -465,6 +465,9 @@ def moment_problems(raw):
         if skip is not None and (not isinstance(skip, list) or not all(
                 isinstance(s, list) and len(s) == 2 and all(isinstance(t, (int, float)) for t in s) and s[0] < s[1] for s in skip)):
             problems.append(f"moment {i}: skip must be a list of [from, to] seconds pairs")
+        accent = clip.get("hook_accent")
+        if accent is not None and (not isinstance(accent, list) or not all(isinstance(w, str) for w in accent)):
+            problems.append(f"moment {i}: hook_accent must be a list of words")
         parts = clip.get("hook_parts")
         if parts is not None and (not isinstance(parts, dict) or not all(isinstance(parts.get(k, ""), str) for k in ("kicker", "big", "punch"))):
             problems.append(f"moment {i}: hook_parts must hold kicker, big and punch as text")
@@ -777,6 +780,9 @@ def reel_data(clip, words, duration, face=None):
                   "text": clip["outro"]["text"]} if clip.get("outro") else None,
         "cards": [{**c, "at": at} for c in clip.get("cards") or [] if (at := clip_time(clip, c["at"])) is not None],
         "joins": joins(clip),
+        "hook_style": clip.get("hook_style") or "spotlight",
+        "hook_accent": clip.get("hook_accent") or [],
+        "brand_tag": clip.get("brand_tag") or "",
     }
 
 
@@ -790,8 +796,16 @@ def joins(clip):
     return out
 
 
+def hook_end(reel):
+    """When v2.html's hook leaves and captions start (mirrors HOOK_END): a headline holds 2.5 s, or the cold open up to 3.5 s."""
+    base = min(max(2.5, reel.get("cut") or 0), 3.5) if reel.get("hook_style") == "headline" else 1.85
+    return min(max(base, (reel.get("intro") or {}).get("seconds", 0)), reel["duration"] - 0.4)
+
+
 def hook_slam(reel):
     """When v2.html slams the hook: the big word's shake, else the punch line's (mirrors hookParts and buildHook)."""
+    if reel.get("hook_style") == "headline":
+        return 0.1  # the headline lands
     parts = reel.get("hook_parts")
     if not (parts and (parts.get("big") or parts.get("punch"))):
         words = str(reel.get("hook") or "").split()
@@ -803,13 +817,13 @@ def hook_slam(reel):
 def card_times(reel):
     """When v2.html shows each context card (mirrors buildCards: after the hook, no overlaps)."""
     d = reel["duration"]
-    hook_end = min(max(1.85, (reel.get("intro") or {}).get("seconds", 0)), d - 0.4)
+    gone = hook_end(reel)
     cap_end = reel["outro"]["at"] if reel.get("outro") else d
     shown = []
     for c in reel.get("cards") or []:
         if c.get("at") is None or c["at"] > cap_end - 1:
             continue
-        at = max(hook_end + 0.1, c["at"])
+        at = max(gone + 0.1, c["at"])
         out = min(at + c.get("hold", 4), d - 0.05, cap_end)
         if not any(at < y + 0.2 and x < out + 0.2 for x, y in shown):
             shown.append((at, out))
@@ -917,6 +931,37 @@ def rgb(colour):
     return ", ".join(str(int(colour.lstrip("#")[i:i + 2], 16)) for i in (0, 2, 4))
 
 
+def _key(word):
+    return re.sub(r"[^\w₹$%]", "", word.lower())
+
+
+def accent_words(reel):
+    """Headline words to colour: hook_accent, else emphasis words in the headline, else its numbers, else its longest word."""
+    words = [_key(w) for w in str(reel.get("hook") or "").split()]
+    pick = lambda options: [k for k in dict.fromkeys(_key(w) for o in options for w in o.split()) if k and k in words]
+    found = pick(reel.get("hook_accent") or []) or pick(reel.get("emphasis") or []) or pick(
+        [w for w in words if re.search(r"\d", w)]) or ([max(words, key=len)] if words else [])
+    return found[:4]
+
+
+def headline_markup(reel):
+    """The headline hook: brand tag over the headline, accent words in runs that alternate hot and sun."""
+    accent, spans, run = set(accent_words(reel)), [], -1
+    words = str(reel.get("hook") or "").split()
+    for i, w in enumerate(words):
+        lit = _key(w) in accent
+        if lit and (i == 0 or _key(words[i - 1]) not in accent):
+            run += 1
+        cls = f"hl-w hl-a{run % 2}" if lit else "hl-w"
+        spans.append(f'<span class="{cls}">{html.escape(w)}</span>')
+    tag = (f'<div id="hl-tag"><span id="hl-tag-text">{html.escape(reel["brand_tag"])}</span><span id="hl-rule"></span></div>'
+           if reel.get("brand_tag") else "")
+    return f'<div id="headline"><div id="hl-shade"></div><div id="hl-box">{tag}<div id="hl-text">{" ".join(spans)}</div></div></div>'
+
+
+HEADLINE_FONT = '@font-face { font-family: "Anton"; src: url("fonts/Anton-Regular.ttf") format("truetype"); font-weight: 400; }'
+
+
 def reel_page(reel, design, total, duration, music_tag, theme, watermark=False, sfx=False):
     data = json.dumps(reel, ensure_ascii=False)
     if sfx:
@@ -924,6 +969,10 @@ def reel_page(reel, design, total, duration, music_tag, theme, watermark=False, 
     html = REEL_TEMPLATES[design].read_text(encoding="utf-8")
     html = html.replace("<!--__MUSIC__-->", music_tag).replace("__TOTAL__", f"{total}").replace("__DURATION__", f"{duration}").replace("<!--__DATA__-->", f"<script>window.__REEL_DATA__ = {data};</script>")
     html = html.replace("<!--__WATERMARK__-->", '<img id="wm" src="watermark.png" alt="" />' if watermark else "")
+    headline = reel.get("hook_style") == "headline"
+    html = html.replace("<!--__HEADLINE__-->", headline_markup(reel) if headline else "")
+    if headline:
+        html = html.replace("<style>", f"<style>\n      {HEADLINE_FONT}", 1)
     if theme:
         font = theme["font"]
         html = html.replace("#ff5a1f", theme["hot"]).replace("255, 90, 31", rgb(theme["hot"]))
@@ -974,11 +1023,13 @@ def render_styled(workdir, video, clip, words, name, detector, out, parallel, *,
         sys.exit(f"hyperframes render failed for {name}:\n{(done.stderr or done.stdout)[-1500:]}")
 
 
-def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None, sfx=False):
+def render_one(workdir, moment, out, *, theme=None, intro=None, outro=None, music=None, sfx=False,
+               hook_style="spotlight", brand_tag=""):
     """One moment, design v2, no watermark, no end screen. Engine exits become errors callers can catch.
-    Without an intro the moment's cold open (if any) plays first."""
+    Without an intro the moment's cold open (if any) plays first. Also writes out.jpg, the cover frame."""
     try:
-        return _render_one(workdir, moment, out, theme=theme, intro=intro, outro=outro, music=music, sfx=sfx)
+        return _render_one(workdir, {**moment, "hook_style": hook_style, "brand_tag": brand_tag}, out,
+                           theme=theme, intro=intro, outro=outro, music=music, sfx=sfx)
     except SystemExit as e:
         raise RuntimeError(str(e.code)) from None
 
@@ -1007,7 +1058,16 @@ def _render_one(workdir, moment, out, *, theme, intro, outro, music, sfx=False):
     out.parent.mkdir(parents=True, exist_ok=True)
     render_styled(workdir, video, clip, words, out.stem, face_detector(), out, False,
                   design="v2", watermark=False, end=None, music=music, theme=theme, voices=voices, sfx=sfx)
+    cover_frame(out, out.with_suffix(".jpg"))
     return out
+
+
+COVER_AT = 1.3  # the publisher's thumb_offset; the headline is fully shown by then
+
+
+def cover_frame(video, jpg, at=COVER_AT):
+    run(["ffmpeg", "-y", "-v", "error", "-ss", f"{at}", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(jpg)])
+    return jpg
 
 
 def render_basic(video, clip, words, name, detector, clip_dir):

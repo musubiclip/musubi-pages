@@ -111,6 +111,7 @@ def _draft(db, cfg, c):
     sv = db.execute("select source_id, note from source_videos where video_id = ?", (c["video_id"],)).fetchone()
     return {"id": c["id"], "page": c["page"], "kind": c["kind"], "created_at": c["created_at"],
             "video_url": store.url(c["file_key"], 3600) if c["file_key"] else None,
+            "cover_url": store.url(c["cover_key"], 3600) if c["cover_key"] else None,
             "hook": moment.get("hook_text") or script.get("hook_text"),
             "layer": {k: layer.get(k) for k in ("intro", "takeaway", "cards")} if layer else None,
             "flags": layer.get("flags") or script.get("flags") or [], "claims": script.get("claims", []),

@@ -371,3 +371,11 @@ def test_access_allows_only_musubiclip_emails(client, monkeypatch):
     assert get("prateek@musubiclip.com", aud="other") == 403
     assert get("prateek@musubiclip.com", exp=False) == 403
     assert get("Prateek@MusubiClip.com") == 200
+
+
+def test_state_gives_a_draft_its_cover(client, d):
+    cid = add_draft(d)
+    assert state(client)["drafts"][0]["cover_url"] is None
+    d.execute("update clips set cover_key = ? where id = ?", (f"clips/{cid}.jpg", cid))
+    d.commit()
+    assert state(client)["drafts"][0]["cover_url"] == f"/files/clips/{cid}.jpg"

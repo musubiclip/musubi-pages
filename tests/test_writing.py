@@ -124,3 +124,15 @@ def test_script_hook_over_8_words(monkeypatch):
     monkeypatch.setattr(llm, "ask", lambda p, sc: s)
     with pytest.raises(ValueError, match="hook_text over 8 words"):
         writing.write_script(BILLI, [])
+
+
+def test_headline_pages_ask_for_a_factual_news_headline(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "ask", lambda p, s: (seen.setdefault("p", p), s(moments=[M()]))[1])
+    writing.pick_moments("[1.0-5.0] hi", "Ep 1", 2, hook_style="headline")
+    p = seen["p"]
+    for rule in ("news headline of 6 to 14 words", "hook_accent", "no invented facts", "never write \"illegally\"",
+                 "controversy 30%", "cold_open_start"):
+        assert rule in p
+    assert "3 different hooks" not in p and "At most 8 words" not in p and "{hook_rules}" not in p
+    assert M().hook_accent == [] and writing.HOOK_WORDS == {"spotlight": (1, 8), "headline": (6, 14)}
