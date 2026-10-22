@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StrictBool
 
 from pages import accounts, config, db as dbm, ig, insights, store
+from pages.schedule import IST
 
 app = FastAPI()
 DIST = config.ROOT / "web" / "dist"
@@ -187,6 +188,10 @@ class Connect(BaseModel):
     token: str
 
 
+class Reschedule(BaseModel):
+    at: datetime  # with its offset, e.g. 2026-10-23T09:30:00+05:30
+
+
 @app.post("/api/clips/{cid}/approve")
 async def approve(cid: int, body: Approve, db=Depends(get_db)):
     caption = body.caption
@@ -222,6 +227,35 @@ async def reject(cid: int, body: Reject, db=Depends(get_db)):
     db.commit()
     if not cur.rowcount:
         raise HTTPException(409, "clip is not a draft")
+    return OK
+
+
+@app.post("/api/clips/{cid}/unschedule")
+async def unschedule(cid: int, db=Depends(get_db)):
+    """Take a scheduled reel off the schedule for good; one already being posted can't be stopped."""
+    cur = db.execute("update clips set status = 'rejected', reason = 'removed from the schedule', scheduled_at = null "
+                     "where id = ? and status = 'scheduled'", (cid,))
+    db.commit()
+    if not cur.rowcount:
+        raise HTTPException(409, "reel is not scheduled (it may be posting right now)")
+    return OK
+
+
+@app.post("/api/clips/{cid}/reschedule")
+async def reschedule(cid: int, body: Reschedule, db=Depends(get_db), cfg=Depends(get_cfg)):
+    if body.at.tzinfo is None:
+        raise HTTPException(400, "time needs a timezone")
+    at = body.at.astimezone(UTC)
+    if at < datetime.now(UTC) + timedelta(minutes=2):
+        raise HTTPException(400, "pick a time in the future")
+    row = db.execute("select page from clips where id = ? and status = 'scheduled'", (cid,)).fetchone()
+    if not row:
+        raise HTTPException(409, "reel is not scheduled (it may be posting right now)")
+    lo, hi = cfg.pages[row["page"]].window
+    if not lo <= at.astimezone(IST).hour < hi:  # the publisher never posts outside the window
+        raise HTTPException(400, f"outside the posting window, {lo}:00 to {hi}:00 IST")
+    db.execute("update clips set scheduled_at = ? where id = ? and status = 'scheduled'", (at.isoformat(), cid))
+    db.commit()
     return OK
 
 

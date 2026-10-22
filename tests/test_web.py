@@ -381,3 +381,18 @@ def test_state_gives_a_draft_its_cover(client, d):
     d.execute("update clips set cover_key = ? where id = ?", (f"clips/{cid}.jpg", cid))
     d.commit()
     assert state(client)["drafts"][0]["cover_url"] == f"/files/clips/{cid}.jpg"
+
+
+def test_unschedule_and_reschedule(client, d):
+    from datetime import UTC, datetime, timedelta
+    from pages.schedule import IST
+    sid = add_clip(d, "podcastbawaal", "scheduled", scheduled_at="2030-01-01T05:00:00+00:00")
+    noon = (datetime.now(IST) + timedelta(days=2)).replace(hour=12, minute=30, second=0, microsecond=0)
+    assert client.post(f"/api/clips/{sid}/reschedule", json={"at": noon.isoformat()}).status_code == 200
+    assert d.execute("select scheduled_at from clips where id = ?", (sid,)).fetchone()[0] == noon.astimezone(UTC).isoformat()
+    assert client.post(f"/api/clips/{sid}/reschedule", json={"at": noon.replace(hour=3).isoformat()}).status_code == 400
+    assert client.post(f"/api/clips/{sid}/reschedule", json={"at": "2020-01-01T12:00:00+05:30"}).status_code == 400
+    assert client.post(f"/api/clips/{sid}/unschedule").status_code == 200
+    assert status(d, sid)["status"] == "rejected"
+    assert client.post(f"/api/clips/{sid}/unschedule").status_code == 409
+    assert client.post(f"/api/clips/{sid}/reschedule", json={"at": noon.isoformat()}).status_code == 409
