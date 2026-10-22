@@ -396,3 +396,19 @@ def test_unschedule_and_reschedule(client, d):
     assert status(d, sid)["status"] == "rejected"
     assert client.post(f"/api/clips/{sid}/unschedule").status_code == 409
     assert client.post(f"/api/clips/{sid}/reschedule", json={"at": noon.isoformat()}).status_code == 409
+
+
+def test_schedule_approved_and_post_now(client, d):
+    from datetime import UTC, datetime, timedelta
+    from pages.schedule import IST
+    aid = add_clip(d, "podcastbawaal", "approved")
+    noon = (datetime.now(IST) + timedelta(days=2)).replace(hour=12, minute=30, second=0, microsecond=0)
+    assert client.post(f"/api/clips/{aid}/reschedule", json={"at": noon.isoformat()}).status_code == 200
+    assert status(d, aid)["status"] == "scheduled"
+    r = client.post(f"/api/clips/{aid}/post-now")  # 400 when the test runs outside the posting window
+    assert r.status_code in (200, 400)
+    if r.status_code == 200:
+        at = d.execute("select scheduled_at from clips where id = ?", (aid,)).fetchone()[0]
+        assert datetime.fromisoformat(at) <= datetime.now(UTC)
+    did = add_clip(d, "podcastbawaal", "draft")
+    assert client.post(f"/api/clips/{did}/post-now").status_code == 409
