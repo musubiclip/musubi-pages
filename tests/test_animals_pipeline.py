@@ -178,7 +178,8 @@ def fakes(monkeypatch, tmp_path):
     return rendered
 
 
-def test_cut_renders_drafts_with_cards_music_and_the_cc_credit(d, cfg, local_store, fakes):
+def test_cut_renders_drafts_with_cards_music_and_the_cc_credit(d, cfg, local_store, fakes, monkeypatch):
+    monkeypatch.setattr(ap, "clips_for", lambda duration, cap: cap)  # treat the fixture as a long video
     downloaded(d, local_store)
     ap.step(d, cfg)
     assert video(d)["status"] == "cut"
@@ -197,6 +198,7 @@ def test_cut_renders_drafts_with_cards_music_and_the_cc_credit(d, cfg, local_sto
 
 
 def test_one_failed_render_fails_only_that_clip(d, cfg, local_store, fakes, monkeypatch):
+    monkeypatch.setattr(ap, "clips_for", lambda duration, cap: cap)  # treat the fixture as a long video
     downloaded(d, local_store)
     real = clipper.render_one
 
@@ -246,3 +248,8 @@ def test_reupload_titles_are_skipped():
 
 def test_pick_prompt_skips_watermarks():
     assert "watermark" in ap.PICK_RULES and "another creator" in ap.PICK_RULES
+
+
+def test_short_videos_give_one_clip():
+    assert ap.clips_for(60, 3) == 1 and ap.clips_for(179, 3) == 1
+    assert ap.clips_for(180, 3) == 3 and ap.clips_for(600, 2) == 2

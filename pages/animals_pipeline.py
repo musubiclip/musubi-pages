@@ -165,10 +165,15 @@ def contact_sheets(video: Path, duration: float, folder: Path) -> tuple[list[Pat
     return sorted(folder.glob("sheet-*.png")), every
 
 
+def clips_for(duration: float, cap: int) -> int:
+    """One clip from a short video (three from one minute look repetitive), up to the page cap from long ones."""
+    return 1 if duration < 180 else cap
+
+
 def pick_moments(page, info: dict, duration: float, cuts: list[float], sheets: list[Path], every: float) -> list[Moment]:
     prompt = PICK_RULES.format(handle=page.handle, topics=writing._topics(page), title=info.get("title", ""),
                                duration=duration, every=every, cuts=", ".join(f"{c:.1f}" for c in cuts) or "none found",
-                               want=page.clips_per_video, lo=CLIP_MIN, hi=CLIP_MAX, restricted=writing.RESTRICTED)
+                               want=clips_for(duration, page.clips_per_video), lo=CLIP_MIN, hi=CLIP_MAX, restricted=writing.RESTRICTED)
     return llm.ask(prompt, Moments, images=sheets).moments
 
 
@@ -195,7 +200,7 @@ def cut(db, cfg, row) -> None:
     duration = clipper.duration_of(video)
     sheets, every = contact_sheets(video, duration, workdir / "sheets")
     kept = keep(pick_moments(page, info, duration, clipper.shot_cuts(video, 0, duration), sheets, every),
-                duration, page.clips_per_video)
+                duration, clips_for(duration, page.clips_per_video))
     if not kept:
         _set(db, row, "skipped", "no usable moments")
         return

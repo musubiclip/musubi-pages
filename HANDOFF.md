@@ -16,7 +16,7 @@ Musubi will run 27 niche Instagram pages with Hinglish handles and grow them wit
 
 **In progress (Prateek, by hand)**
 - Two factor login on billikalesh (authenticator app; key and backup codes saved in Bitwarden).
-- The other accounts, created over the coming days at 3 to 5 a day. One new account hit a phone checkpoint and is **in appeal (submitted 22 Oct)**. Its handle wasn't recorded; ask.
+- The other accounts, created over the coming days at 3 to 5 a day. One new account, **karmaloredaily**, hit a phone checkpoint; its appeal failed and it is **permanently disabled (21 Oct 2026, no further review)**. Don't recreate it or reuse its email or phone; account creation is paused for a week or two and will continue from another device, one account a day.
 - Buying 1 or 2 prepaid SIMs just for the pages. **Do not** use Musubi's WhatsApp Business number, which sends marketplace login codes.
 - Setting up Bitwarden with one item per page: handle, email, password, TOTP key, backup codes, which SIM, whose birthday (one real adult, the same on all), created date.
 
@@ -49,7 +49,7 @@ Musubi will run 27 niche Instagram pages with Hinglish handles and grow them wit
 | 23 | Cricket | dugoutbawaal | none |
 | 24 | Football and other sports | ballknowledgebhai | footykalesh, goalbhaukaal |
 | 25 | Cars and bikes | gaadibhaukaal | revkalesh, torqueauradesi |
-| 26 | Spirituality | karmaloredaily | none |
+| 26 | Spirituality | ~~karmaloredaily~~ disabled 21 Oct 2026; angle on hold | none |
 | 27 | Animals and nature | **billikalesh (pilot, done)** | doggolore, pawbhaukaal |
 
 The sign up email is always the primary handle at `musubi.si`, even when a backup handle is used. Suggested profile for karmaloredaily: name "Karma Lore Daily", bio "Daily lessons on karma, dharma and life 🕉️ / Stories from the Gita, saints and everyday life".
