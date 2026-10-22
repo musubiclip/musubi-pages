@@ -67,14 +67,15 @@ def create_reel(user_id: str, token: str, video_url: str, caption: str, *,
     return post(f"/{user_id}/media", token, **params)["id"]
 
 
-def container(container_id: str, token: str) -> dict:
-    return get(f"/{container_id}", token, fields="status_code,copyright_check_status")
+def container(container_id: str, token: str, *, copyright: bool = False) -> dict:
+    # copyright_check_status doesn't exist under Instagram Login: asking for it fails the whole call
+    return get(f"/{container_id}", token, fields="status_code,copyright_check_status" if copyright else "status_code")
 
 
 def wait_container(container_id: str, token: str, *, copyright: bool, every=30, limit=600) -> dict:
     start = time.monotonic()
     while True:
-        c = container(container_id, token)
+        c = container(container_id, token, copyright=copyright)
         status = c.get("status_code")
         if status in ("ERROR", "EXPIRED"):
             raise IGError(-1, None, f"container {status}")

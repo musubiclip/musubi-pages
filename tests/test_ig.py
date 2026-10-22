@@ -146,3 +146,11 @@ def test_fake_ig_records_create_reel(monkeypatch):
     with pytest.raises(ig.IGError):
         ig.create_reel("1789", "tok", "u", "c", thumb_offset_ms=0, trial=True, collaborators=[], ai_label=True)
     assert ig.publish("1789", "tok", "c1") == "m1" and f.published == ["c1"]
+
+
+def test_container_asks_for_copyright_only_when_checking(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ig, "get", lambda path, token, **p: seen.append(p["fields"]) or {"status_code": "FINISHED"})
+    ig.container("c1", "t")
+    ig.container("c1", "t", copyright=True)
+    assert seen == ["status_code", "status_code,copyright_check_status"]

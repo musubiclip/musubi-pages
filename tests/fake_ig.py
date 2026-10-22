@@ -35,7 +35,7 @@ class FakeIG:
                                  ai_label=ai_label))
         return f"c{len(self.created)}"
 
-    def get_container(self, container_id, token):
+    def get_container(self, container_id, token, *, copyright=False):
         return self.container
 
     def wait_container(self, container_id, token, *, copyright, every=30, limit=600):
