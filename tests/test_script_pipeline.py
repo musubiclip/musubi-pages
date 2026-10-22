@@ -180,15 +180,48 @@ def test_reel_waits_for_cc_footage_then_finishes(d, cfg, local_store, home, tmp_
     assert not {j["key"] for j in jobs} & {j["key"] for j in store.get_json("jobs/cc.json")}
 
 
-def test_cc_none_fails_the_waiting_reel(d, cfg, local_store, home, tmp_path, monkeypatch):
-    patch_reel(monkeypatch, shots=False)
+def cc_footage(tmp_path, i, have):
+    src = tmp_path / "cc.mp4"
+    src.write_bytes(b"v")
+    for b in range(6):
+        if b in have:
+            store.put(f"footage/cc/{i}-{b}.mp4", src)
+            store.put_json(f"footage/cc/{i}-{b}.json", {"page_url": f"https://youtu.be/{b}", "author": "Bo", "licence": "CC BY"})
+        else:
+            store.put(f"footage/cc/{i}-{b}.none", src)
+
+
+def test_a_none_beat_reuses_the_previous_shot_and_credits_once(d, cfg, local_store, home, tmp_path, monkeypatch):
+    seen = patch_reel(monkeypatch, shots=False)
     i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
-    src = tmp_path / "n"
-    src.write_bytes(b"")
-    store.put(f"footage/cc/{i}-0.none", src)
+    cc_footage(tmp_path, i, {0, 1, 3, 4, 5})
     script_pipeline.step(d, cfg)
     row = clip(d, i)
-    assert row["status"] == "failed" and row["reason"] == "no footage for cat 0"
+    assert row["status"] == "draft", row["reason"]
+    paths = [p.name for p in seen["montage"][0]]
+    assert len(paths) == 6 and paths[2] == paths[1]
+    credits = [c["credit"] for c in json.loads(row["credits"])]
+    assert len(credits) == 5 == len(set(credits))
+    assert row["caption"].count("https://youtu.be/1") == 1
+
+
+def test_a_none_first_beat_reuses_the_next_shot(d, cfg, local_store, home, tmp_path, monkeypatch):
+    seen = patch_reel(monkeypatch, shots=False)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    cc_footage(tmp_path, i, {1, 2, 3, 4, 5})
+    script_pipeline.step(d, cfg)
+    assert clip(d, i)["status"] == "draft"
+    paths = [p.name for p in seen["montage"][0]]
+    assert paths[0] == paths[1]
+
+
+def test_all_beats_none_fails_the_waiting_reel(d, cfg, local_store, home, tmp_path, monkeypatch):
+    patch_reel(monkeypatch, shots=False)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    cc_footage(tmp_path, i, set())
+    script_pipeline.step(d, cfg)
+    row = clip(d, i)
+    assert row["status"] == "failed" and row["reason"] == "no footage for any beat"
 
 
 def test_step_makes_no_new_reel_while_one_waits(d, cfg, local_store, home, monkeypatch):
@@ -217,18 +250,48 @@ def test_waiting_reel_shots_count_as_used(d, cfg, local_store, home, monkeypatch
     assert "pexels:7" in seen[0]
 
 
-def fake_ytdlp(monkeypatch, entries):
+def fake_ytdlp(monkeypatch, entries, rc=0):
+    """entries: a list for every search, or a dict of search query -> list."""
     calls = []
 
     def run(cmd, **kw):
         calls.append(cmd)
         if "-J" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"entries": entries}), "")
+            found = entries if isinstance(entries, list) else entries.get(cmd[-1].split("search_query=")[1].split("&")[0], [])
+            if kw.get("check") and rc:
+                raise subprocess.CalledProcessError(rc, cmd)
+            return subprocess.CompletedProcess(cmd, rc, json.dumps({"entries": found}), "ERROR: Sign in to confirm your age.")
         Path(cmd[cmd.index("-o") + 1]).write_bytes(b"v")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(script_pipeline.subprocess, "run", run)
     return calls
+
+
+CC = {"id": "b", "duration": 60, "license": "Creative Commons Attribution license (reuse allowed)",
+      "webpage_url": "https://youtu.be/b", "uploader": "Bee"}
+
+
+def test_cc_search_skips_bad_results_and_reads_json_despite_exit_1(local_store, home, monkeypatch):
+    calls = fake_ytdlp(monkeypatch, [CC], rc=1)
+    assert script_pipeline.fetch_cc({"key": "5-2", "query": "cat", "seconds": 6.0}) is True
+    assert "--ignore-errors" in calls[0]
+
+
+def test_cc_search_with_no_json_fails(local_store, home, monkeypatch):
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, "", "ERROR: boom")
+
+    monkeypatch.setattr(script_pipeline.subprocess, "run", run)
+    with pytest.raises(Exception):
+        script_pipeline.fetch_cc({"key": "5-3", "query": "cat", "seconds": 6.0})
+
+
+def test_cc_search_retries_with_the_first_two_words(local_store, home, monkeypatch):
+    calls = fake_ytdlp(monkeypatch, {"sleepy+cat+on+sofa": [], "sleepy+cat": [CC]})
+    assert script_pipeline.fetch_cc({"key": "5-4", "query": "sleepy cat on sofa", "seconds": 6.0}) is True
+    assert len([c for c in calls if "-J" in c]) == 2
+    assert store.exists("footage/cc/5-4.mp4") and not store.exists("footage/cc/5-4.none")
 
 
 def test_cc_search_refuses_a_video_without_a_cc_licence(local_store, home, monkeypatch):
