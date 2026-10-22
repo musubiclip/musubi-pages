@@ -159,6 +159,27 @@ def test_script_too_long_fails_the_reel(d, cfg, local_store, home, monkeypatch):
     assert row["status"] == "failed" and "script length" in row["reason"]
 
 
+@pytest.fixture(autouse=True)
+def good_video(monkeypatch):
+    """Stub files written by tests probe as 999 s of video unless named broken."""
+    monkeypatch.setattr(script_pipeline, "_video_seconds", lambda p: 0.0 if "broken" in Path(p).read_bytes().decode(errors="ignore") else 999.0)
+
+
+def test_a_broken_stored_shot_reuses_its_neighbour(d, cfg, local_store, home, tmp_path, monkeypatch):
+    seen = patch_reel(monkeypatch, shots=False)
+    i = script_pipeline.make_reel(d, cfg, cfg.pages["billikalesh"])
+    cc_footage(tmp_path, i, {0, 1, 2, 3, 4, 5})
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(b"broken")
+    store.put(f"footage/cc/{i}-2.mp4", bad)
+    script_pipeline.step(d, cfg)
+    row = clip(d, i)
+    assert row["status"] == "draft", row["reason"]
+    paths = [p.name for p in seen["montage"][0]]
+    assert paths[2] == paths[1]
+    assert "https://youtu.be/2" not in row["credits"]
+
+
 def test_reel_waits_for_cc_footage_then_finishes(d, cfg, local_store, home, tmp_path, monkeypatch):
     patch_reel(monkeypatch, shots=False)
     script_pipeline.step(d, cfg)
@@ -261,7 +282,7 @@ def fake_ytdlp(monkeypatch, entries, rc=0):
             if kw.get("check") and rc:
                 raise subprocess.CalledProcessError(rc, cmd)
             return subprocess.CompletedProcess(cmd, rc, json.dumps({"entries": found}), "ERROR: Sign in to confirm your age.")
-        Path(cmd[cmd.index("-o") + 1]).write_bytes(b"v")
+        Path(cmd[cmd.index("-o") + 1]).write_bytes(b"broken" if "stub" in cmd[-1] else b"v")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(script_pipeline.subprocess, "run", run)
@@ -313,6 +334,20 @@ def test_cc_search_downloads_the_middle_of_a_long_enough_cc_video(local_store, h
     assert store.get_json("footage/cc/5-1.json") == {
         "page_url": "https://youtu.be/b", "author": "Bee", "licence": "Creative Commons Attribution license (reuse allowed)"}
     assert store.exists("footage/cc/5-1.mp4")
+
+
+def test_cc_download_skips_a_stub_and_uses_the_next_result(local_store, home, monkeypatch):
+    calls = fake_ytdlp(monkeypatch, [{**CC, "webpage_url": "https://youtu.be/stub"}, CC])
+    assert script_pipeline.fetch_cc({"key": "5-5", "query": "cat", "seconds": 6.0}) is True
+    dl = calls[1]
+    assert "--force-keyframes-at-cuts" in dl and "height<=1080" in dl[dl.index("-f") + 1]
+    assert store.get_json("footage/cc/5-5.json")["page_url"] == "https://youtu.be/b"
+
+
+def test_cc_download_all_stubs_writes_none(local_store, home, monkeypatch):
+    fake_ytdlp(monkeypatch, [{**CC, "webpage_url": "https://youtu.be/stub"}])
+    assert script_pipeline.fetch_cc({"key": "5-6", "query": "cat", "seconds": 6.0}) is False
+    assert store.exists("footage/cc/5-6.none") and not store.exists("footage/cc/5-6.mp4")
 
 
 @pytest.mark.slow
