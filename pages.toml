@@ -22,7 +22,8 @@ theme = {hot = "#256dfd", sun = "#5cff3a", font = "Poppins"}
 music = ["music/circuit-synthwave-alt.mp3", "music/lofi-beat-loafy.mp3", "music/synthwave-electropop.mp3"]
 sfx = true
 clips_per_video = 3
-topics = "tech and AI: launches, hot takes, founders, AI tools and debates"
+topics = "tech and AI: launches, hot takes, founders, AI tools and debates, gadgets, and how it works engineering and science explainers"
+queries = ["how it works machine", "engineering explained", "factory process", "robot arm", "physics experiment", "satisfying machine", "how it's made", "gadget teardown"]
 
 # Set from what the API actually does (verify-ig).
 [api]

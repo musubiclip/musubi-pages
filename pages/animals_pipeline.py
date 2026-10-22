@@ -1,4 +1,4 @@
-"""Animal clips (billikalesh): Creative Commons YouTube videos, moments picked by Claude from contact sheets.
+"""Visual reels for any page with `queries` (animals, tech explainers): Creative Commons YouTube videos, moments picked by Claude from contact sheets.
 
 No speech, so no transcript: Claude looks at frames. The reel gets a hook, 1 to 2 context cards and music.
 """
@@ -29,12 +29,18 @@ def _now() -> str:
 
 
 def _pages(cfg):
-    return [p for p in cfg.pages.values() if p.pipeline == "animals" and p.active]
+    return [p for p in cfg.pages.values() if p.queries and p.active]
 
 
 def _set(db, row, status, note=None) -> None:
     db.execute("update source_videos set status = ?, note = coalesce(?, note) where id = ?", (status, note, row["id"]))
     db.commit()
+
+
+def visual_queued(db, page: str) -> int:
+    return db.execute("select count(*) from clips c join source_videos s on s.video_id = c.video_id and s.page = c.page "
+                      "where c.page = ? and s.source_id = ? and c.status in ('planned', 'draft', 'approved', 'scheduled')",
+                      (page, SOURCE)).fetchone()[0]
 
 
 # --- jobs for the Mac, and what it sends back ---
@@ -43,8 +49,8 @@ def write_jobs(db, cfg) -> None:
     jobs, used = [], [v for (v,) in db.execute("select video_id from source_videos")]
     for page in _pages(cfg):
         busy = db.execute("select 1 from source_videos where page = ? and status = 'downloaded'", (page.handle,)).fetchone()
-        if busy or not page.queries or queue_size(db, page.handle) >= QUEUE_LOW:
-            continue
+        if busy or queue_size(db, page.handle) >= QUEUE_LOW or visual_queued(db, page.handle) >= QUEUE_LOW / 2:
+            continue  # visual clips stay at most half the queue, so a page with podcasts too gets a mix
         # every search so far, found or not, moves the rotation on
         tries = (db.execute("select count(*) from source_videos where page = ? and source_id = ?",
                             (page.handle, SOURCE)).fetchone()[0]
@@ -73,7 +79,7 @@ AV_FORMAT = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[
 
 
 def fetch_animals(job: dict) -> bool:
-    """Mac side: find one Creative Commons animal video, download it whole, upload it with its info."""
+    """Mac side: find one Creative Commons video, download it whole, upload it with its info."""
     if store.keys("inbox/animals/"):  # the server has not taken the last result yet
         return False
     skip = set(job.get("skip", []))
@@ -122,16 +128,16 @@ class Moments(BaseModel):
 
 
 # compilation channels re-upload other people's clips, so their Creative Commons licence often isn't theirs to give
-REUPLOAD = re.compile(r"compilation|try not to laugh|funniest|funny moments|best of|tiktok|reels|part \d", re.I)
+REUPLOAD = re.compile(r"compilation|try not to laugh|funniest|funny moments|best of|tiktok|reels|part \d|satisfying compilation|amazing machines|top \d+", re.I)
 
 
 PICK_RULES = """\
-You choose clips for @{handle}, an Instagram page of animal videos ({topics}).
+You choose clips for @{handle}, an Instagram page of short visual reels ({topics}).
 The images are contact sheets of one video, "{title}" ({duration:.0f} seconds long): a frame every {every:g} seconds,
 left to right then top to bottom, each stamped with its time in seconds. Scene cuts at: {cuts}.
 
 Pick up to {want} moments for short vertical reels with no voiceover and no captions:
-- Each is a complete little story that stands alone: a setup, then a payoff (the jump, the fail, the reaction).
+- Each is a complete little story that stands alone: a setup, then a payoff (the reveal, the result, the reaction).
 - Start just before the action begins and end right after the payoff. Use a scene cut as start or end where one is near.
 - Length is {lo} to {hi} seconds, inside 0 to {duration:.0f}. Moments never overlap.
 - Skip intros, title cards, subscribe screens, someone talking to camera, and frames covered in text.
@@ -140,13 +146,16 @@ Pick up to {want} moments for short vertical reels with no voiceover and no capt
 
 For each moment write:
 - title: a short working title.
-- hook_text: at most 8 words on screen for the first seconds, in English. No emojis, hashtags or dashes.
-- cards: 1 or 2 context cards with a fact or context the clip does not show, such as why cats do this. `at` is in
-  source seconds inside the moment, title short, body one short sentence. Never invent specifics about these exact
-  animals (names, ages, places). No dashes.
-- flags: {restricted} Also flag an animal that looks hurt, in distress or mistreated.
+- hook_text: at most 8 words on screen for the first seconds, in English. Open a curiosity gap the clip pays off,
+  never a label. For explainers prefer "This is what happens when...", "Why..." or "How..." patterns.
+  No emojis, hashtags or dashes.
+- cards: 1 or 2 cards explaining the mechanism, science, engineering or context behind what is on screen that the
+  clip itself does not show. `at` is in source seconds inside the moment, title short, body one short sentence.
+  Only state facts that are true in general; never invent specifics about this exact footage (names, ages, places,
+  numbers). No dashes.
+- flags: {restricted} If animals appear, also flag one that looks hurt, in distress or mistreated.
 - Scores from 1 to 5: hook (first 3 seconds stop the scroll), standalone (needs no context), payoff (a satisfying
-  end), emotion (funny, cute, surprising or moving). Be strict: most land at 2 to 4, and 5 is rare.
+  end), emotion (funny, surprising, satisfying or moving). Be strict: most land at 2 to 4, and 5 is rare.
 """
 
 
