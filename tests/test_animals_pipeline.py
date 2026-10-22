@@ -58,7 +58,7 @@ def test_jobs_rotate_queries_and_stop_while_a_video_is_in_progress(d, cfg, local
     assert store.get_json("jobs/animals.json") == []  # one video at a time
     d.execute("update source_videos set status = 'cut'")
     ap.write_jobs(d, cfg)
-    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "dog reacts", "skip": ["cat1"]}]
+    assert store.get_json("jobs/animals.json") == [{"page": "billikalesh", "query": "kitten playing", "skip": ["cat1"]}]
 
 
 def test_no_jobs_when_paused_or_the_queue_is_full(d, cfg, local_store):
